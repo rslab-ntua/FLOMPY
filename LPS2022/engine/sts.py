@@ -1,0 +1,162 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import logging
+import os
+import fnmatch
+from engine.simage import senimage
+from engine.exceptions import NoDataError, BBOXError
+from engine.clipper import Clipper
+from engine.ts import timeseries
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(format = '%(message)s', level = logging.INFO)
+
+class sentimeseries(timeseries):
+    """Sentinel 2 time series."""
+    
+    def __init__(self, name):
+        timeseries.__init__(self, name) 
+
+    def find(self, path, level = 'L2A'):
+        """Finds automatically all the available data in a provided path based on the S2 level
+        product (L1C or L2A) that the user provides.
+
+        Args:
+            path (str, path-like): Search path
+            level (str, optional): Level of the S2 time series (L1C or L2A). Defaults to 'L2A'.
+
+        Raises:
+            NoDataError: Raises when no data were found in the provided path
+        """
+        image = None
+        logging.info("---------------------------------------------------------------------------------------------")
+        logging.info("Searching for Sentinel 2 Satellite data...")
+        for (dirpath, _, _) in os.walk(path):
+            for file in os.listdir(dirpath):
+                # Find data
+                #print('\r{}'.format(file), end='', flush=True)
+                #time.sleep(1)
+                if fnmatch.fnmatch(str(file), '*{}*.SAFE'.format(level)):
+                    logging.info("Raw data found (*.SAFE file): {}".format(str(file)))
+                    
+                    image = senimage(dirpath, file)
+                    image.getmetadata()
+                    image.getBands()
+                    self.data.append(image)
+                    self.names.append(image.name)
+                    self.dates.append(image.datetime)
+                    self.cloud_cover.append(image.cloud_cover)
+        
+        if len(self.data) == 0:
+            raise NoDataError("0 Sentinel 2 raw data found in the selected path.")
+        else:
+            self.total = len(self.data)
+        logging.info("---------------------------------------------------------------------------------------------")
+  
+    def getVI(self, index, image = None):
+        """Calculates a vegetation index for an image if the user provides an image or
+        for all the time series.
+
+        Args:
+            index (str): Vegetation index. Currently works only for NDVI, EVI and MCARI image (senimage, optional): An complete S2image object that if the user provides the method calculates the selected vegetation index. Defaults to None
+            image (senimage): If an senimage object is provided calculates VI for this image only
+        """
+        
+        # User can provide either the image name or the object.
+        if image is None:
+            logging.info("Calculating {} for all time series...".format(index))
+            
+            for im in self.data:
+                im.calcVI(index)
+        else:
+            if isinstance(image, senimage):
+                image.calcVI(index)
+            else:
+                raise TypeError("Only senimage objects are supported as image!")
+        
+
+
+    def createbbox(self, minx, maxx, miny, maxy, srid):
+        """Creating a bounding box to mask the image.
+
+        Args:
+            minx (int): Minimum x coordinate of the bounding box
+            maxx (int): Maximum x coordinate of the bounding box
+            miny (int): Minimum y coordinate of the bounding box
+            maxy (int): Maximum y coordinate of the bounding box
+            srid (int): SRID code
+        """
+        bbox = Clipper.boundingBox(minx, maxx, miny, maxy, srid)
+        
+        setattr(self, 'bbox', bbox)
+
+    def clip(self, bbox = None, image = None, band = None):
+        """Masks an image or a time series
+
+        Args:
+            bbox (GeoDataFrame, optional): Bounding box to mask the time series. Currently works only with a bounding box created by .createbox(). Defaults to None
+            image (senimage, optional): An complete S2image object that if the user
+            provides the method masks the selected image. Defaults to None
+            band (str, optional): If the user provides a band the method masks only the specific band. Defaults to None
+        """
+        
+        bands = ['B02', 'B03', 'B04', 'B08', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12']
+
+        if bbox is None:
+            logging.info("Checking if a bounding box is setted for the time series...")
+            if hasattr(self, 'bbox'):
+                if image is None:
+                    if band is None:
+                        logging.info("Clipping all time series...")
+
+                        for im in self.data:
+                            for b in bands:
+                                Clipper.clip(im, self.bbox, band = b)
+                    else:
+                        logging.info("Clipping band {} for all time series...".format(band))
+                        for im in self.data:
+                            Clipper.clip(im, self.bbox, band = band)
+
+                else:
+                    if band is None:
+                        logging.info("Clipping all bands of image {}...".format(image.name))
+                        for b in bands:
+                            Clipper.clip(image, self.bbox, band = b)
+                    else:
+                        logging.info("Clipping band {} of image {}...".format(band, image.name))
+                        Clipper.clip(image, self.bbox, band = band)
+            else:
+                raise BBOXError("No bounding box is provided. Provide a BBOX or either use .createbbox() method to create one.")
+        else:
+            raise BBOXError("Currently works only with .createbbox() method.")
+
+    def clipbyMask(self, shapefile, image = None, band = None, resize = False):
+        """Masks an image or the complete time series with a shapefile.
+
+        Args:
+            shapefile (path-like, str): Path to shapefile mask
+            image (senimage, optional): Masks a specific image. Defaults to None
+            band (str, optional): Masks a specific band. Defaults to None
+            resize (bool, optional): Resize band. Defaults to False
+        """
+        bands = ['B02', 'B03', 'B04', 'B08', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12']
+
+        if image is None:
+            if band is None:
+                logging.info("Masking all time series with {}...".format(shapefile))
+                for im in self.data:
+                    for b in bands:
+                        Clipper.clipByMask(im, shapefile, band = b, resize = resize)
+            else:
+                logging.info("Masking band {} for all time series with {}...".format(band, shapefile))
+                for im in self.data:
+                    Clipper.clipByMask(im, shapefile, band = band, resize = resize)
+        else:
+            if band is None:
+                logging.info("Masking {} with {}...".format(image, shapefile))
+                for b in bands:
+                    Clipper.clipByMask(image, shapefile, band = b, resize = resize)
+            else:
+                logging.info("Masking band {} of image {} with {}...".format(band, image, shapefile))
+                Clipper.clipByMask(image, shapefile, band = band, resize = resize)
