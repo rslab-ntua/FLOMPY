@@ -35,8 +35,6 @@ class sentimeseries(timeseries):
         for (dirpath, _, _) in os.walk(path):
             for file in os.listdir(dirpath):
                 # Find data
-                #print('\r{}'.format(file), end='', flush=True)
-                #time.sleep(1)
                 if fnmatch.fnmatch(str(file), '*{}*.SAFE'.format(level)):
                     logging.info("Raw data found (*.SAFE file): {}".format(str(file)))
                     

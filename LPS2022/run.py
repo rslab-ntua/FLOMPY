@@ -14,6 +14,8 @@ eodata.getVI("NDMI")
 
 # Clip data
 eodata.clipbyMask(AOI, resize = True)
+eodata.clipbyMask(AOI, band = "NDMI", resize = True)
+eodata.clipbyMask(AOI, band = "NDVI")
 
 # Show
 eodata.show_metadata()

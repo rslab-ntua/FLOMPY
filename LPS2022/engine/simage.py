@@ -94,6 +94,10 @@ class senimage():
             "B10": "60",
             "B11": "20",
             "B12": "20",
+            "NDVI": "10",
+            "NDMI": "20",
+            "EVI": "10",
+            "MCARI": "10"
         }
         return resolutions.get(band)
 

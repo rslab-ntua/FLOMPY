@@ -8,7 +8,7 @@ from rasterio.windows import Window
 from rasterio.enums import Resampling
 from rasterio.warp import reproject, Resampling
 from rasterio.mask import mask
-import fiona
+import numpy as np
 from engine.exceptions import BandNotFound, PathError
 
 class Clipper():
@@ -191,7 +191,7 @@ class Clipper():
                     logging.info("File {} already exists...".format(os.path.join(path, "T{}_{}_{}_{}.{}".format(image.tile_id, image.str_datetime, band, new, ext))))
 
                     return
-                    
+
                 if int(resolution) == 20 and resize == True:
                     logging.info("Extracting {} by mask of inserted SHP and resample to 10 meters resolution...".format(getattr(image, band)))
                 else:
@@ -202,11 +202,13 @@ class Clipper():
                 if int(resolution) == 20 and resize == True:
                     if method is None:
                         resampling = Resampling.nearest
+                    
                     src = rasterio.open(getattr(image, band))
+                    
                     if src.crs != shapes.crs:
                         shapes = shapes.to_crs(src.crs.to_epsg())
                     
-                    hr_bands = ['B02', 'B03', 'B04', 'B08']
+                    hr_bands = ['B04', 'B08']
                     hr_band = None
                     for hrb in hr_bands:
                         if hasattr(image, hrb):
@@ -217,25 +219,30 @@ class Clipper():
                     
                     
                     with rasterio.open(hr_band, "r+") as hr:
-                        data, transform = mask(hr, shapes.geometry, crop = True, filled = True)
+                        data, transform = mask(hr, shapes.geometry, crop = True, filled = True, nodata = 0)
                     
                     metadata = hr.meta.copy()
                     metadata.update({"height": data.shape[1],
                         "width": data.shape[2],
                         "transform": transform,
+                        "dtype": src.meta["dtype"],
+                        "driver": "GTiff"
                         })
-                    
-                    with rasterio.open(out_tif, 'w', **metadata) as dst:
-                        reproject(
-                            source = src.read(1),
-                            destination = rasterio.band(dst, 1),
-                            src_transform = src.transform,
-                            src_crs = src.crs,
-                            dst_transform = transform,
-                            dst_crs = hr.crs,
-                            resampling = resampling
-                            )
+                    #NEEDS DEBUGGING!
+                    reproj_array, _ = reproject(
+                        source = src.read(1),
+                        destination = np.empty(shape=data.shape),
+                        src_transform = src.transform,
+                        src_crs = src.crs,
+                        dst_transform = transform,
+                        dst_crs = hr.crs,
+                        resampling = resampling
+                        )
 
+                    reproj_array[data == 0] = -9999
+
+                    with rasterio.open(out_tif, 'w', **metadata) as dst:
+                        dst.write(reproj_array)
                 else:
 
                     with rasterio.open(getattr(image, band), "r+") as src:
