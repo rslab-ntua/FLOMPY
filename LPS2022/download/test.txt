@@ -28,3 +28,5 @@ Output:
                             Sentinel-2 Tiles numbers
     -f FILENAME, --filename=FILENAME
                             Filename with stored APIHub credentials
+
+$python cli.py -l "L2A" -d "20200610" -e "20200925" -t "34SEJ" -f "./APIHUB-credentials.txt" -w "/home/tars/Desktop/RSLab/FLOMPY/Data/Sentinel-2/2020/"

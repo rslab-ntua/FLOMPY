@@ -131,7 +131,7 @@ class sentimeseries(timeseries):
         else:
             raise BBOXError("Currently works only with .createbbox() method.")
 
-    def clipbyMask(self, shapefile, image = None, band = None, resize = False):
+    def clipbyMask(self, shapefile, image = None, band = None, resize = False, method = None):
         """Masks an image or the complete time series with a shapefile.
 
         Args:
@@ -139,6 +139,7 @@ class sentimeseries(timeseries):
             image (senimage, optional): Masks a specific image. Defaults to None
             band (str, optional): Masks a specific band. Defaults to None
             resize (bool, optional): Resize band. Defaults to False
+            method (rasterio.enums.Resampling): Available resampling methods. If None the Nearest is used. Defaults to None
         """
         bands = ['B02', 'B03', 'B04', 'B08', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12']
 
@@ -147,16 +148,16 @@ class sentimeseries(timeseries):
                 logging.info("Masking all time series with {}...".format(shapefile))
                 for im in self.data:
                     for b in bands:
-                        Clipper.clipByMask(im, shapefile, band = b, resize = resize)
+                        Clipper.clipByMask(im, shapefile, band = b, resize = resize, method = method)
             else:
                 logging.info("Masking band {} for all time series with {}...".format(band, shapefile))
                 for im in self.data:
-                    Clipper.clipByMask(im, shapefile, band = band, resize = resize)
+                    Clipper.clipByMask(im, shapefile, band = band, resize = resize, method = method)
         else:
             if band is None:
                 logging.info("Masking {} with {}...".format(image, shapefile))
                 for b in bands:
-                    Clipper.clipByMask(image, shapefile, band = b, resize = resize)
+                    Clipper.clipByMask(image, shapefile, band = b, resize = resize, method = method)
             else:
                 logging.info("Masking band {} of image {} with {}...".format(band, image, shapefile))
-                Clipper.clipByMask(image, shapefile, band = band, resize = resize)
+                Clipper.clipByMask(image, shapefile, band = band, resize = resize, method = method)

@@ -21,7 +21,7 @@ def downloadAPI(user, passwd, tiles, platform, product, start, end, download = T
     Todo:
         * Work with other Sentinel programs i.e S1
     """
-    api = SentinelAPI(user, passwd, api_url='https://scihub.copernicus.eu/apihub/', show_progressbars=True, timeout=None)
+    api = SentinelAPI(user, passwd, api_url='https://apihub.copernicus.eu/apihub/', show_progressbars=True, timeout=None)
 
     if cloudcoverage == 100:
         query_kwargs = {

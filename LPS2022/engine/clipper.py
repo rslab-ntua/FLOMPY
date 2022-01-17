@@ -6,6 +6,7 @@ import geopandas as gpd
 from fiona.crs import from_epsg
 from rasterio.windows import Window
 from rasterio.enums import Resampling
+from rasterio.warp import reproject, Resampling
 from rasterio.mask import mask
 import fiona
 from engine.exceptions import BandNotFound, PathError
@@ -122,7 +123,6 @@ class Clipper():
 
                         if method == None:
                             method = Resampling.nearest
-                            print (type(method))
                         
                         out_img = src.read(out_shape = (src.height * resize_val, src.width * resize_val), resampling = method, window = win)
 
@@ -142,7 +142,7 @@ class Clipper():
             
 
     @staticmethod
-    def clipByMask(image, shapefile, band = None, new = 'masked', resize = False, resize_val = 2, method = None, ext = 'tif'):
+    def clipByMask(image, shapefile, band = None, new = 'masked', resize = False, method = None, ext = 'tif'):
         """Mask image based on a shapefile mask.
 
         Args:
@@ -191,24 +191,67 @@ class Clipper():
                     logging.info("File {} already exists...".format(os.path.join(path, "T{}_{}_{}_{}.{}".format(image.tile_id, image.str_datetime, band, new, ext))))
 
                     return
+                    
+                if int(resolution) == 20 and resize == True:
+                    logging.info("Extracting {} by mask of inserted SHP and resample to 10 meters resolution...".format(getattr(image, band)))
+                else:
+                    logging.info("Extracting {} by mask of inserted SHP...".format(getattr(image, band)))
 
-                logging.info("Extracting {} by mask of inserted SHP...".format(getattr(image, band)))
-   
-                with rasterio.open(getattr(image, band), "r+") as src:
-                    shapes = gpd.read_file(shapefile)
+                shapes = gpd.read_file(shapefile)
+                
+                if int(resolution) == 20 and resize == True:
+                    if method is None:
+                        resampling = Resampling.nearest
+                    src = rasterio.open(getattr(image, band))
                     if src.crs != shapes.crs:
                         shapes = shapes.to_crs(src.crs.to_epsg())
-                    out_image, out_transform = mask(src, shapes.geometry, crop=True, filled=True)
-                    out_meta = src.meta
-                    out_crs = src.crs
-                    out_meta.update({"driver": "GTiff",
-                                    "crs": out_crs,
-                                    "height": out_image.shape[1],
-                                    "width": out_image.shape[2],
-                                    "transform": out_transform})
-                
-                with rasterio.open(out_tif, "w", **out_meta) as output_image:
-                    output_image.write(out_image)
+                    
+                    hr_bands = ['B02', 'B03', 'B04', 'B08']
+                    hr_band = None
+                    for hrb in hr_bands:
+                        if hasattr(image, hrb):
+                            hr_band = getattr(image, hrb)
+                            break
+                    if hr_bands is None:
+                        raise BandNotFound("No high resolution band found!")
+                    
+                    
+                    with rasterio.open(hr_band, "r+") as hr:
+                        data, transform = mask(hr, shapes.geometry, crop = True, filled = True)
+                    
+                    metadata = hr.meta.copy()
+                    metadata.update({"height": data.shape[1],
+                        "width": data.shape[2],
+                        "transform": transform,
+                        })
+                    
+                    with rasterio.open(out_tif, 'w', **metadata) as dst:
+                        reproject(
+                            source = src.read(1),
+                            destination = rasterio.band(dst, 1),
+                            src_transform = src.transform,
+                            src_crs = src.crs,
+                            dst_transform = transform,
+                            dst_crs = hr.crs,
+                            resampling = resampling
+                            )
+
+                else:
+
+                    with rasterio.open(getattr(image, band), "r+") as src:
+                        if src.crs != shapes.crs:
+                            shapes = shapes.to_crs(src.crs.to_epsg()) 
+                        out_image, out_transform = mask(src, shapes.geometry, crop=True, filled=True)
+                        out_meta = src.meta
+                        out_crs = src.crs
+                        out_meta.update({"driver": "GTiff",
+                                        "crs": out_crs,
+                                        "height": out_image.shape[1],
+                                        "width": out_image.shape[2],
+                                        "transform": out_transform})
+                    
+                    with rasterio.open(out_tif, "w", **out_meta) as output_image:
+                        output_image.write(out_image)
                 
                 setattr(image, '{}_masked'.format(band), out_tif)
             
