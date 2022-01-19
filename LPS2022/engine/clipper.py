@@ -151,7 +151,6 @@ class Clipper():
             band (str, optional): Band to be applied. Note that the band name must be the same with the object attribute name. Defaults to None
             new (str, optional): Piece of string added to the end of the new filename. Defaults to 'masked'
             resize (bool, optional): If True resizes the output resize_val times. Defaults to False
-            resize_val (int, optional): Resize value. Defaults to 2
             method (rasterio.enum.Resampling, optional): Resampling method. Defaults to None
             ext (str, optional): Extention of the image. Defaults to 'tif'
 
@@ -207,7 +206,8 @@ class Clipper():
                     
                     if src.crs != shapes.crs:
                         shapes = shapes.to_crs(src.crs.to_epsg())
-                    
+
+                    # Use as high resolution bands only 4 and 8 that are trustworthy
                     hr_bands = ['B04', 'B08']
                     hr_band = None
                     for hrb in hr_bands:
@@ -217,18 +217,9 @@ class Clipper():
                     if hr_bands is None:
                         raise BandNotFound("No high resolution band found!")
                     
-                    
                     with rasterio.open(hr_band, "r+") as hr:
                         data, transform = mask(hr, shapes.geometry, crop = True, filled = True, nodata = 0)
-                    
-                    metadata = hr.meta.copy()
-                    metadata.update({"height": data.shape[1],
-                        "width": data.shape[2],
-                        "transform": transform,
-                        "dtype": src.meta["dtype"],
-                        "driver": "GTiff"
-                        })
-                    #NEEDS DEBUGGING!
+
                     reproj_array, _ = reproject(
                         source = src.read(1),
                         destination = np.empty(shape=data.shape),
@@ -239,7 +230,23 @@ class Clipper():
                         resampling = resampling
                         )
 
-                    reproj_array[data == 0] = -9999
+                    if src.meta["dtype"] == "uint16":
+                        reproj_array[data == 0] = 0
+                        nodata = 0
+                    elif src.meta["dtype"] == "float32":
+                        reproj_array[data == 0] = -9999
+                        nodata = -9999
+                    else:
+                        raise TypeError("Only float32 or uint16 datatypes are supported!")
+
+                    metadata = hr.meta.copy()
+                    metadata.update({"height": data.shape[1],
+                        "width": data.shape[2],
+                        "transform": transform,
+                        "dtype": src.meta["dtype"],
+                        "driver": "GTiff",
+                        "nodata": nodata
+                        })
 
                     with rasterio.open(out_tif, 'w', **metadata) as dst:
                         dst.write(reproj_array)
@@ -247,15 +254,24 @@ class Clipper():
 
                     with rasterio.open(getattr(image, band), "r+") as src:
                         if src.crs != shapes.crs:
-                            shapes = shapes.to_crs(src.crs.to_epsg()) 
-                        out_image, out_transform = mask(src, shapes.geometry, crop=True, filled=True)
+                            shapes = shapes.to_crs(src.crs.to_epsg())
+                        
+                        if src.meta["dtype"] == "uint16":
+                            nodata = 0
+                        elif src.meta["dtype"] == "float32":
+                            nodata = -9999
+                        else:
+                            raise TypeError("Only float32 or uint16 datatypes are supported!")
+
+                        out_image, out_transform = mask(src, shapes.geometry, crop = True, filled = True, nodata = nodata)
                         out_meta = src.meta
                         out_crs = src.crs
                         out_meta.update({"driver": "GTiff",
                                         "crs": out_crs,
                                         "height": out_image.shape[1],
                                         "width": out_image.shape[2],
-                                        "transform": out_transform})
+                                        "transform": out_transform,
+                                        "nodata": nodata})
                     
                     with rasterio.open(out_tif, "w", **out_meta) as output_image:
                         output_image.write(out_image)
