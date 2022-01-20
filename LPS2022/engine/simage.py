@@ -65,7 +65,7 @@ class senimage():
         self.date = self.datetime.date()
         self.time = self.datetime.time()
         self.gml_coordinates = root[1][0][0][0][0].text
-        self.cloud_cover = "{:.3f}".format(float(root[3][0].text))
+        self.cloud_cover = float("{:.3f}".format(float(root[3][0].text)))
         self.processing_level = root[0][0][3].text
         self.tile_id = self.name[39:44]
         logging.info("  - Done!")

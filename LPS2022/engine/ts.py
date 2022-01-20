@@ -249,11 +249,11 @@ class timeseries():
             return
 
         elif cloud_coverage is True and date is False:
-
+            
             # Sort images
-            zipped = zip(self.cloud_cover, self.data)
-            sorted_list = sorted(zipped)
-            self.data = [i for _, i in sorted_list]
+            zipped = zip(self.cloud_cover, self.names, self.data)
+            sorted_list = sorted(zipped, key = lambda k: (k[0], k[1]))
+            self.data = [i for _, _, i in sorted_list]
 
             # Sort names
             zipped = zip(self.cloud_cover, self.names)
@@ -261,40 +261,46 @@ class timeseries():
             self.names = [i for _, i in sorted_list]
             
             # Sort dates
-            zipped = zip(self.cloud_cover, self.dates)
-            sorted_list = sorted(zipped)
-            self.dates = [i for _, i in sorted_list]
+            zipped = zip(self.cloud_cover, self.names, self.dates)
+            sorted_list = sorted(zipped, key = lambda k: (k[0], k[1]))
+            self.dates = [i for _, _, i in sorted_list]
 
-            self.cloud_cover = sorted(self.cloud_cover)
+            self.cloud_cover = sorted(self.cloud_cover)                     
+
         
         elif cloud_coverage is False and date is True:
             # Sort images
-            zipped = zip(self.dates, self.data)
-            sorted_list = sorted(zipped)
-            self.data = [i for _, i in sorted_list]
+            zipped = zip(self.dates, self.names, self.data)
+            sorted_list = sorted(zipped, key = lambda k: (k[0], k[1]))
+            self.data = [i for _, _, i in sorted_list]
 
             # Sort names
             zipped = zip(self.dates, self.names)
             sorted_list = sorted(zipped)
             self.names = [i for _, i in sorted_list]
             
-            # Sort dates
-            zipped = zip(self.dates, self.cloud_cover)
-            sorted_list = sorted(zipped)
-            self.cloud_cover = [i for _, i in sorted_list]
+            # Sort cloud cover
+            zipped = zip(self.dates, self.names, self.cloud_cover)
+            sorted_list = sorted(zipped, key = lambda k: (k[0], k[1]))
+            self.cloud_cover = [i for _, _, i in sorted_list]
 
             self.dates = sorted(self.dates)
 
         else:
             # Sort images
-            zipped = zip(self.dates, self.data)
-            sorted_list = sorted(zipped)
-            self.data = [i for _, i in sorted_list]
+            zipped = zip(self.names, self.dates, self.data)
+            sorted_list = sorted(zipped, key = lambda k: (k[0], k[1]))
+            self.data = [i for _, _, i in sorted_list]
 
-            # Sort names
-            zipped = zip(self.dates, self.names)
+            # Sort dates
+            zipped = zip(self.names, self.dates)
             sorted_list = sorted(zipped)
-            self.data = [i for _, i in sorted_list]
-            
-            # In the end sort the dates
-            self.dates = sorted(self.dates)
+            self.dates = [i for _, i in sorted_list]
+
+            # Sort cloud cover
+            zipped = zip(self.names, self.dates, self.cloud_cover)
+            sorted_list = sorted(zipped, key = lambda k: (k[0], k[1]))
+            self.cloud_cover = [i for _, _, i in sorted_list]
+
+            # In the end sort the names
+            self.names = sorted(self.names)

@@ -4,8 +4,10 @@
 import logging
 import os
 import fnmatch
+import zipfile
+
 from engine.simage import senimage
-from engine.exceptions import NoDataError, BBOXError
+from engine.exceptions import NoDataError, BBOXError, imageError
 from engine.clipper import Clipper
 from engine.ts import timeseries
 
@@ -16,9 +18,63 @@ class sentimeseries(timeseries):
     """Sentinel 2 time series."""
     
     def __init__(self, name):
-        timeseries.__init__(self, name) 
+        timeseries.__init__(self, name)
+        self.tiles = []
 
-    def find(self, path, level = 'L2A'):
+    def find_zip(self, path, level = "L2A", force_uncompress = False):
+        """Find automatically Sentinel-2 data from *.zip.
+
+        Args:
+            path (str): Path to stored data
+            level (str, optional): Sentinel 2 product level. Defaults to "L2A".
+            force_uncompress (bool, optional): Force to re-uncompress in case an *.SAFE file already exists. Defaults to False.
+        """
+        image = None
+        logging.info("---------------------------------------------------------------------------------------------")
+        logging.info("Searching for Sentinel 2 Satellite data...")
+        for (dirpath, _, _) in os.walk(path):
+            for file in os.listdir(dirpath):
+                # Find data
+                if fnmatch.fnmatch(str(file), '*{}*.zip'.format(level)):
+                    logging.info("Raw data found (*.zip file): {}".format(str(file)))
+                    name = os.path.splitext(os.path.split(file)[-1])[0] + ".SAFE"  
+                    if (os.path.exists(os.path.join(dirpath, name))) and (force_uncompress is False):
+                        logging.info("File {} exists! No need to uncompress".format(name))
+                        image = senimage(dirpath, name)
+                        image.getmetadata()
+                        image.getBands()
+                        self.data.append(image)
+                        self.names.append(image.name)
+                        self.dates.append(image.datetime)
+                        self.cloud_cover.append(image.cloud_cover)
+                        self.tiles.append(image.tile_id)
+                    else:
+                        if zipfile.is_zipfile(os.path.join(dirpath, file)):
+                            with zipfile.ZipFile(os.path.join(dirpath, file), 'r') as src:
+                                src.extractall(dirpath)
+                            
+                            image = senimage(dirpath, name)
+                            image.getmetadata()
+                            image.getBands()
+                            self.data.append(image)
+                            self.names.append(image.name)
+                            self.dates.append(image.datetime)
+                            self.cloud_cover.append(image.cloud_cover)
+                            self.tiles.append(image.tile_id)
+                        else:
+                            raise imageError("File {} seems corrupted!".format(file))
+        
+        if len(self.data) == 0:
+            raise NoDataError("0 Sentinel 2 raw data found in the selected path.")
+        else:
+            self.total = len(self.data)
+        
+        if len(list(set(self.tiles))) > 1:
+            raise logging.warning("Available data are in more than one tiles!")
+        
+        logging.info("---------------------------------------------------------------------------------------------")
+
+    def find(self, path, level = "L2A"):
         """Finds automatically all the available data in a provided path based on the S2 level
         product (L1C or L2A) that the user provides.
 
@@ -45,11 +101,16 @@ class sentimeseries(timeseries):
                     self.names.append(image.name)
                     self.dates.append(image.datetime)
                     self.cloud_cover.append(image.cloud_cover)
-        
+                    self.tiles.append(image.tile_id)
+
         if len(self.data) == 0:
             raise NoDataError("0 Sentinel 2 raw data found in the selected path.")
         else:
             self.total = len(self.data)
+        
+        if len(list(set(self.tiles))) > 1:
+            raise logging.warning("Available data are in more than one tiles!")
+
         logging.info("---------------------------------------------------------------------------------------------")
   
     def getVI(self, index, image = None):
