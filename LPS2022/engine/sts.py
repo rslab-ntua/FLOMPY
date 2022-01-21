@@ -22,12 +22,12 @@ class sentimeseries(timeseries):
         self.tiles = []
 
     def find_zip(self, path, level = "L2A", force_uncompress = False):
-        """Find automatically Sentinel-2 data from *.zip.
+        """Find and extract automatically Sentinel-2 data from *.zip.
 
         Args:
             path (str): Path to stored data
-            level (str, optional): Sentinel 2 product level. Defaults to "L2A".
-            force_uncompress (bool, optional): Force to re-uncompress in case an *.SAFE file already exists. Defaults to False.
+            level (str, optional): Sentinel 2 product level. Defaults to "L2A"
+            force_uncompress (bool, optional): Force to re-uncompress in case an *.SAFE file already exists. Defaults to False
         """
         image = None
         logging.info("---------------------------------------------------------------------------------------------")
@@ -70,7 +70,7 @@ class sentimeseries(timeseries):
             self.total = len(self.data)
         
         if len(list(set(self.tiles))) > 1:
-            raise logging.warning("Available data are in more than one tiles!")
+            logging.warning("Available data are in more than one tiles!")
         
         logging.info("---------------------------------------------------------------------------------------------")
 
@@ -109,7 +109,7 @@ class sentimeseries(timeseries):
             self.total = len(self.data)
         
         if len(list(set(self.tiles))) > 1:
-            raise logging.warning("Available data are in more than one tiles!")
+            logging.warning("Available data are in more than one tiles!")
 
         logging.info("---------------------------------------------------------------------------------------------")
   

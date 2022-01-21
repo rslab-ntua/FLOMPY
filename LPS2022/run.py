@@ -6,24 +6,18 @@ AOI = "/home/tars/Desktop/RSLab/FLOMPY/Data/AOI/Flompy_ianos_aoi.geojson"
 
 # Get data
 eodata = sentimeseries("S2-timeseries")
-#eodata.find_zip(datapath)
-# Show
-eodata.show_metadata()
-print(eodata.total)
+eodata.find_zip(datapath)
 
-eodata.find(datapath)
-print(eodata.total)
-print(eodata.tiles)
 eodata.sort_images()
 
 # Get VIs
-#eodata.getVI("NDVI")
-#eodata.getVI("NDMI")
+eodata.getVI("NDVI")
+eodata.getVI("NDMI")
 
 # Clip data
-#eodata.clipbyMask(AOI, resize = True)
-#eodata.clipbyMask(AOI, band = "NDMI", resize = True)
-#eodata.clipbyMask(AOI, band = "NDVI")
+eodata.clipbyMask(AOI, resize = True)
+eodata.clipbyMask(AOI, band = "NDMI", resize = True)
+eodata.clipbyMask(AOI, band = "NDVI")
 
 # Show
-#eodata.show_metadata()
+eodata.show_metadata()
