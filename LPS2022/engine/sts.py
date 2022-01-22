@@ -220,3 +220,30 @@ class sentimeseries(timeseries):
             else:
                 logging.info("Masking band {} of image {} with {}...".format(band, image, shapefile))
                 Clipper.clipByMask(image, shapefile, band = band, resize = resize, method = method)
+        
+    def remove_orbit(self, orbit):
+        """Remove images with specific orbit.
+
+        Args:
+            orbit (str): Number of orbit
+        """
+        if not isinstance(orbit, str):
+            raise TypeError("Provide orbit as a string!")
+
+        new = []
+        for image in self.data:
+            if image.orbit == None:
+                logging.warning("Image {} has no date information stored!".format(image.name))
+            elif image.orbit == orbit:
+                logging.info("Removing {} with orbit {}...".format(image.name, image.orbit))
+                self.names.remove(image.name)
+                self.dates.remove(image.datetime)
+                self.cloud_cover.remove(image.cloud_cover)
+            else:
+                new.append(image)
+                logging.info("Keeping {} with orbit {}...".format(image.name, image.orbit))
+        self.data = new
+        self.total = len(self.data)
+        del new
+        logging.info("New number of data after removing orbit {} is: {}".format(orbit, len(self.data)))
+

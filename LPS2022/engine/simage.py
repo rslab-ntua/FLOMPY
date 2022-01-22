@@ -39,7 +39,8 @@ class senimage():
         self.cloud_cover = None
         self.processing_level = None
         self.tile_id = None
-    
+        self.orbit = None
+        
     def getmetadata(self):
         """Searching for metadata (XML) files.
         """
@@ -68,6 +69,7 @@ class senimage():
         self.cloud_cover = float("{:.3f}".format(float(root[3][0].text)))
         self.processing_level = root[0][0][3].text
         self.tile_id = self.name[39:44]
+        self.orbit = root[0][0][9][3].text
         logging.info("  - Done!")
 
     @staticmethod
