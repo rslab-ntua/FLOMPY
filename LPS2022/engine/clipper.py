@@ -188,7 +188,7 @@ class Clipper():
                 if os.path.exists(out_tif) == True and os.stat(out_tif).st_size != 0:
                     # Pass if file already exists & it's size is not zero
                     logging.info("File {} already exists...".format(os.path.join(path, "T{}_{}_{}_{}.{}".format(image.tile_id, image.str_datetime, band, new, ext))))
-
+                    setattr(image, '{}_masked'.format(band), out_tif)
                     return
 
                 if int(resolution) == 20 and resize == True:
