@@ -239,6 +239,7 @@ class sentimeseries(timeseries):
                 self.names.remove(image.name)
                 self.dates.remove(image.datetime)
                 self.cloud_cover.remove(image.cloud_cover)
+                self.tiles.remove(image.tile_id)
             else:
                 new.append(image)
                 logging.info("Keeping {} with orbit {}...".format(image.name, image.orbit))
