@@ -230,14 +230,14 @@ class Clipper():
                         resampling = resampling
                         )
 
-                    if src.meta["dtype"] == "uint16":
+                    if src.meta["dtype"] == "uint16" or src.meta["dtype"] == "uint8":
                         reproj_array[data == 0] = 0
                         nodata = 0
                     elif src.meta["dtype"] == "float32":
                         reproj_array[data == 0] = -9999
                         nodata = -9999
                     else:
-                        raise TypeError("Only float32 or uint16 datatypes are supported!")
+                        raise TypeError("Only float32, uint16 or uint8 datatypes are supported!")
 
                     metadata = hr.meta.copy()
                     metadata.update({"height": data.shape[1],
@@ -256,12 +256,12 @@ class Clipper():
                         if src.crs != shapes.crs:
                             shapes = shapes.to_crs(src.crs.to_epsg())
                         
-                        if src.meta["dtype"] == "uint16":
+                        if src.meta["dtype"] == "uint16" or src.meta["dtype"] == "uint8":
                             nodata = 0
                         elif src.meta["dtype"] == "float32":
                             nodata = -9999
                         else:
-                            raise TypeError("Only float32 or uint16 datatypes are supported!")
+                            raise TypeError("Only float32, uint16 or uint8 datatypes are supported!")
 
                         out_image, out_transform = mask(src, shapes.geometry, crop = True, filled = True, nodata = nodata)
                         out_meta = src.meta
