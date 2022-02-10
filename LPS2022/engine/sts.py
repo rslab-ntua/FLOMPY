@@ -200,7 +200,7 @@ class sentimeseries(timeseries):
             resize (bool, optional): Resize band. Defaults to False
             method (rasterio.enums.Resampling): Available resampling methods. If None the Nearest is used. Defaults to None
         """
-        bands = ['B02', 'B03', 'B04', 'B08', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12']
+        bands = ['B02', 'B03', 'B04', 'B08', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12', "SCL"]
 
         if image is None:
             if band is None:

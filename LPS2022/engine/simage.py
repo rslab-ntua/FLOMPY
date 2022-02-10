@@ -96,6 +96,7 @@ class senimage():
             "B10": "60",
             "B11": "20",
             "B12": "20",
+            "SCL": "20",
             "NDVI": "10",
             "NDMI": "20",
             "EVI": "10",
@@ -107,7 +108,7 @@ class senimage():
         """Finds all the available bands of an image and sets new attributes for each band.
         """
 
-        bands = ['B02', 'B03', 'B04', 'B08', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12']
+        bands = ['B02', 'B03', 'B04', 'B08', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12', "SCL"]
 
         for band in bands:
             resolution = self.setResolution(band)
