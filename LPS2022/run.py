@@ -14,7 +14,7 @@ AOI = "/mnt/a202d601-6efc-44f7-8408-f8322b69b445/RSLab/FLOMPY/Data/AOI/Flompy_ia
 eodata = sentimeseries("S2-timeseries")
 #eodata.find_zip(datapath)
 eodata.find(datapath)
-eodata.sort_images()
+eodata.sort_images(date=True)
 
 # Get VIs
 eodata.getVI("NDVI")
@@ -30,9 +30,17 @@ eodata.remove_orbit("136")
 # Show
 eodata.show_metadata()
 
-# TODO: Add resampled-clipped SCL image as attribute
-# TODO: create an scl-cloud-mask for each date, as 2D array, based on values [0, 1, 2, 3, 8, 9, 10, 11]
+# create obj
+crop_map = eu.CropDelineation(eodata, datapath)
 
-epm = eu.EPM(eodata, datapath)
+# compute edge intensity (0-100) map
+crop_map.edge_intensity()
+
+# cloud mask
+crop_map.cloud_mask(write=True)
+
+# crop intensity map
+crop_map.mask_ndviseries(write=True)
+
 
 print('bla')

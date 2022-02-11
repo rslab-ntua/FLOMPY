@@ -1,5 +1,6 @@
 import os
 import math
+from pickletools import uint8
 import numpy as np
 import pandas as pd
 import rasterio as rio
@@ -24,7 +25,6 @@ def equation_3(fpaths:list, kernel_N_weight:pd.DataFrame):
         list: List containing 2D arrays, one for each kernel. Result for one week (or date),
         for one pixel (orientation of convolution).
     """
-
     res = []
     for im_path in fpaths:
         with rio.open(im_path) as src:
@@ -33,7 +33,6 @@ def equation_3(fpaths:list, kernel_N_weight:pd.DataFrame):
             # TODO: mask with scl-cloud-mask
             grad = signal.convolve2d(
                 b,
-                # np.flip(kernel_N_weight['kernels'], 0),
                 kernel_N_weight['kernels'],
                 mode='same',
                 boundary='fill',
@@ -55,9 +54,7 @@ def equation_4(ndvi:np.array, kernel_N_weight:pd.DataFrame):
     Returns:
         list: List containg 2D arrays, one for each kernel.
     """
-
     abs_grad = np.absolute(signal.convolve2d(ndvi,
-                                            # np.flip(kernel_N_weight['kernels'], 0),
                                             kernel_N_weight['kernels'],
                                             mode='same',
                                             boundary='fill',
@@ -78,7 +75,6 @@ def equation_5(ndvi:np.array, dweeks:list, dndvi:list, kernels_N_weights:pd.Data
     Returns:
         np.array: Edge estimation image as 2D array.
     """
-
     # Compute every convolutioned image with it's corresponding weight.
     bands = []
     indices = []
@@ -94,8 +90,7 @@ def equation_5(ndvi:np.array, dweeks:list, dndvi:list, kernels_N_weights:pd.Data
 
 
 
-class EPM():
-
+class CropDelineation():
     def __init__(self, eodata:sentimeseries, epm_path:str):
         """Compute edge probability map for dates in given sentimeseries object.
 
@@ -107,8 +102,9 @@ class EPM():
         Raises:
             TypeError: [description]
         """
-
         self.eodt = eodata
+        self.tmp_rng = (self.eodt.dates[0].strftime('%Y%m%d'),
+                            self.eodt.dates[-1].strftime('%Y%m%d'))
         self.epm_path = epm_path
         self.senbands = ['B03_masked',
                         'B04_masked',
@@ -116,6 +112,7 @@ class EPM():
                         'B11_masked',
                         'B12_masked',
                         'NDVI_masked']
+        self.scl_unreliable = [1, 2, 3, 8, 9, 10, 11]
 
         if isinstance(self.eodt, sentimeseries):
             for i in range(len(self.eodt.data)):
@@ -124,12 +121,7 @@ class EPM():
         else:
             raise TypeError("Only sentimeseries objects are supported!")
 
-        self.estimate()
-        self.compute()
-
-
     def estimate(self):
-
         def _wkernels():
             # Kernels to compute spectral diference.
             _conv_kern_p1 = np.array([[-1,  0,  0], [ 0, 1,  0], [ 0,  0,  0]]) # ul
@@ -152,7 +144,6 @@ class EPM():
         self.estim_paths = []
 
         pool = mp.Pool(mp.cpu_count() - 2)
-
         for ms_im in self.eodt.data:
             # apply kernels on NDVI image 
             src = ms_im.ReadData(band=self.senbands[-1])
@@ -183,9 +174,9 @@ class EPM():
             edge_estim = (edge_estim - np.nanmin(edge_estim)) * ((100-0)/(np.nanmax(edge_estim) - np.nanmin(edge_estim))) + 0
             edge_estim = edge_estim.astype(np.float32)
 
-            # write image to disk
             imPath = os.path.join(ms_im.datapath_10,
                                 f"T{ms_im.tile_id}_{ms_im.str_datetime}_edge.tif")
+
             metadata.update(count=1, dtype=edge_estim.dtype)
             with rio.open(imPath, 'w', **metadata) as dst:
                 dst.write(edge_estim, 1)
@@ -193,11 +184,10 @@ class EPM():
             # gather edge estimation images fullpaths
             ms_im.edge = imPath
             self.estim_paths.append(ms_im.edge)
-
         self.estim_meta = metadata
 
 
-    def cube_paths(self, listOfPaths:list, write=False):
+    def cube_by_paths(self, listOfPaths:list, outfname:str=None):
         """Concatenate images as cube.
 
         Args:
@@ -207,7 +197,6 @@ class EPM():
         Returns:
             np.array: Cube as 3D array.
         """
-
         # read random image's metadata
         with rio.open(listOfPaths[0], 'r') as src:
             meta = src.meta
@@ -228,8 +217,8 @@ class EPM():
         # Update metadata. Reduce one because of temp array
         meta.update(count=cbarr.shape[0]-1)
 
-        if write:
-            fp = os.path.join(self.epm_path, f"estimations_cube.tif")
+        if outfname is not None:
+            fp = os.path.join(self.epm_path, f"{outfname}.tif")
             with rio.open(fp, 'w', **meta) as dst:
                 for id, layer in enumerate(listOfPaths, start=1):
                     with rio.open(layer) as src:
@@ -239,13 +228,18 @@ class EPM():
         return cbarr[1:, :, :], meta, band_names
 
 
-    def compute(self):
+    def edge_intensity(self):
         """Compute final edge probability map, using Equation (6) of original paper.
         Also fix some issues due to nodata values. Epm refers to a temporal range.
         """
+        if hasattr(self, 'estim_paths'):
+            pass
+        else:
+            self.estimate()
 
         # create cube using edge estimations of all dates
-        cbarr, cb_metadata, band_names = self.cube_paths(self.estim_paths, write=True)
+        cbarr, cb_metadata, _ = self.cube_by_paths(self.estim_paths,
+                                                outfname='estimations_cube')
 
         # replace nodata value with np.nan
         cbarr[cbarr == cb_metadata['nodata']] = np.nan
@@ -258,11 +252,72 @@ class EPM():
         # replace negative values with nodata value
         res[res < 0] = self.estim_meta['nodata']
 
-        # write to disk
-        temp_r = (self.eodt.dates[0].strftime('%Y-%m-%d'),
-                    self.eodt.dates[-1].strftime('%Y-%m-%d'))
-        imPath = os.path.join(self.epm_path, f"epm__{temp_r[0]}_{temp_r[1]}.tif")
+        imPath = os.path.join(self.epm_path,
+                            f"epm__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
+
         self.estim_meta.update(count=1, dtype=res.dtype)
         with rio.open(imPath, 'w', **self.estim_meta) as dst:
             dst.write(res, 1)
-            dst.set_band_description(1, f"{temp_r[0]}_{temp_r[1]}")
+            dst.set_band_description(1, f"{self.tmp_rng[0]}_{self.tmp_rng[1]}")
+
+
+    def cloud_mask(self, write:bool=False):
+        """Create an image containing the number of dates having unreliable pixel value
+        based on SCL bands.
+        """
+        listOfPaths = []
+        for ms_im in self.eodt.data:
+            listOfPaths.append(ms_im.SCL_masked)
+
+        cbarr, meta, _ = self.cube_by_paths(listOfPaths)
+
+        for c in self.scl_unreliable:
+            cbarr[cbarr==c] = 1
+        cbarr[cbarr!=1] = 0
+
+        # sclmsk = np.sum(cbarr, axis=0).astype(np.uint8)
+        self.scl_mask = cbarr.astype(np.uint8)
+
+        if write:
+            fp = os.path.join(self.epm_path,
+                            f"scl_mask__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
+
+            meta.update(dtype=self.scl_mask.dtype, nodata=0)
+            with rio.open(fp, 'w', **meta) as dst:
+                dst.write(self.scl_mask)
+
+
+    def mask_ndviseries(self, write:bool=False):
+        if hasattr(self, "scl_mask"):
+            pass
+        else:
+            self.cloud_mask()
+
+        listOfPaths = []
+        for ms_im in self.eodt.data:
+            listOfPaths.append(ms_im.NDVI_masked)
+
+        ndviseries, meta, _ = self.cube_by_paths(listOfPaths)
+        ndviseries[self.scl_mask==0] = meta['nodata']
+        self.ndviseries_masked = ndviseries
+
+        if write:
+            fp = os.path.join(self.epm_path,
+                            f"ndviseries_masked__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
+
+            meta.update(dtype=self.ndviseries_masked.dtype, nodata=meta['nodata'])
+            with rio.open(fp, 'w', **meta) as dst:
+                dst.write(self.ndviseries_masked)
+                for b in range(0, self.ndviseries_masked.shape[0]):
+                    dst.set_band_description(b+1, f"{self.eodt.dates[b]}")
+
+
+
+
+    def interpol_ndvi(self, write:bool=False):
+        if hasattr(self, 'ndviseries_masked'):
+            pass
+        else:
+            self.mask_ndviseries()
+
+        
