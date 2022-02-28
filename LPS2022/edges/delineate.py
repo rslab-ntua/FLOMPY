@@ -84,20 +84,20 @@ class CropDelineation():
             edge_estim = (edge_estim - np.nanmin(edge_estim)) * ((100-0)/(np.nanmax(edge_estim) - np.nanmin(edge_estim))) + 0
             edge_estim = edge_estim.astype(np.float32)
 
-            imPath = os.path.join(ms_im.datapath_10,
+            outfname = os.path.join(ms_im.datapath_10,
                                 f"T{ms_im.tile_id}_{ms_im.str_datetime}_edge.tif")
 
             metadata.update(count=1, dtype=edge_estim.dtype)
-            with rio.open(imPath, 'w', **metadata) as dst:
+            with rio.open(outfname, 'w', **metadata) as dst:
                 dst.write(edge_estim, 1)
 
             # gather edge estimation images fullpaths
-            ms_im.edge = imPath
+            ms_im.edge = outfname
             self.estim_paths.append(ms_im.edge)
-        self.estim_meta = metadata
+        # self.estim_meta = metadata
 
 
-    def edge_intensity(self, write:bool=True):
+    def edge_probab_map(self, write:bool=False):
         """Compute final edge probability map, using Equation (6) of original paper.
         Also fix some issues due to nodata values. Epm refers to a temporal range.
         """
@@ -110,50 +110,49 @@ class CropDelineation():
         cbarr, cb_metadata, _ = utils.cube_by_paths(self.estim_paths,
             # outfname=os.path.join(self.epm_path, 'estimations_cube.tif')
             )
-        # mask scl (nodata where clouds exist)
+        # mask scl (give nodata value where clouds exist)
         if 'cloud_mask' in self.masks:
             cbarr[self.masks['cloud_mask']==1] = cb_metadata['nodata']
 
-        # replace nodata value with np.nan
+        # replace cube's nodata value with np.nan to estimate missing dates
         cbarr[cbarr == cb_metadata['nodata']] = np.nan
         # Equation (6). Compute the sum of each pixel in depth.
         pix_sum = np.nansum(cbarr, axis=0)
         # Count how many NaNs every pixel has, through the weeks
         not_nan_dates = np.sum(~np.isnan(cbarr) * 1, axis=0)
+        # divide pixel's sum with not nan dates
         res = pix_sum / not_nan_dates
 
-        # replace negative values with nodata value
-        res[res < 0] = self.estim_meta['nodata']
+        # replace negative values (if any) with nodata value
+        res[res < 0] = cb_metadata['nodata']
 
-        # mask corine (nodata where towns exist)
+        # mask corine (give nodata value where towns exist)
         if 'town_mask' in self.masks:
             res = res[np.newaxis,:,:]
-            res[self.masks['town_mask']==1] = self.estim_meta['nodata']
+            res[self.masks['town_mask']==1] = cb_metadata['nodata']
 
-        # res[res==self.estim_meta['nodata']] = 0
-        # print(np.nanpercentile(res, 75))
-        # res[res<np.nanpercentile(res, 75)] = 0
+        # replace nodata value with zero and set this as the new nodata velue
+        res[res==cb_metadata['nodata']] = 0
 
-        # res[res>=np.nanpercentile(res, 75)] = 1
-        # res=res.astype(np.uint8)
-        
-        # # import scipy
-        # # kernel=np.ones((1,3,3), np.uint8)
-        # # res=scipy.ndimage.binary_erosion(res).astype(np.uint8)
-        # from skimage.morphology import skeletonize
-        # res = skeletonize(res[0,:,:]).astype(np.uint8)
-        # res = res[np.newaxis,:,:]
+        # change range from 0-100 to 0-1 
+        res = res/100
+
+        self.epm = res
+        cb_metadata.update(count=1, dtype=res.dtype, nodata=0)
+        self.epm_meta = cb_metadata
 
         if write:
-            imPath = os.path.join(self.epm_path,
+            outfname = os.path.join(self.epm_path,
                                 f"epm__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
-            self.estim_meta.update(count=1, dtype=res.dtype, nodata=0)
-            with rio.open(imPath, 'w', **self.estim_meta) as dst:
+
+            with rio.open(outfname, 'w', **cb_metadata) as dst:
                 dst.write(res)
                 dst.set_band_description(1, f"{self.tmp_rng[0]}_{self.tmp_rng[1]}")
 
 
-    def ndviseries(self, write:bool=True):
+    def create_series(self, write:bool=False):
+        # TODO: able to create any series
+
         # gather absolute paths of ndvi images masked using aoi
         listOfPaths = []
         for ms_im in self.eodt.data:
@@ -172,9 +171,9 @@ class CropDelineation():
         self.ndviseries_meta = meta
 
         if write:
-            fp = os.path.join(self.epm_path,
+            outfname = os.path.join(self.epm_path,
                             f"ndviseries__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
-            with rio.open(fp, 'w', **self.ndviseries_meta) as dst:
+            with rio.open(outfname, 'w', **self.ndviseries_meta) as dst:
                 dst.write(self.ndviseries)
                 for b in range(0, self.ndviseries.shape[0]):
                     dst.set_band_description(b+1, f"{self.eodt.dates[b].strftime('%Y%m%d')}")
@@ -186,9 +185,9 @@ class CropDelineation():
         # source metadata by a random image masked by aoi
         with rio.open(self.eodt.data[0].NDVI_masked, 'r') as src:
             mask_meta = src.meta
-        
+
         # reproject corine to img crs
-        corine_data = corine_data.to_crs(mask_meta['crs'])
+        corine_data = corine_data.to_crs(mask_meta['crs'].to_epsg())
         # iterable geometry-value pairs
         agri_regions = [[row.geometry, 2] for i, row in corine_data.iterrows()]
         # rasterize mask
@@ -199,17 +198,17 @@ class CropDelineation():
 
         # not agri areas
         town_mask[town_mask==0] = 1
-        # agri areas
+        # agri areas  (set 0 as nodata value)
         town_mask[town_mask==2] = 0
         # TODO: mask image at aoi without clipping
         # add mask to masks
         self.masks['town_mask'] = town_mask[np.newaxis,:,:]
 
         if write:
-            fp = os.path.join(self.epm_path,
+            outfname = os.path.join(self.epm_path,
                             f"town_mask__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
             mask_meta.update(dtype=self.masks['town_mask'].dtype, nodata=0, count=1)
-            with rio.open(fp, 'w', **mask_meta) as dst:
+            with rio.open(outfname, 'w', **mask_meta) as dst:
                 dst.write(self.masks['town_mask'])
 
 
@@ -224,34 +223,33 @@ class CropDelineation():
         # crete 'bad_scl_values' series cube
         cbarr, meta, _ = utils.cube_by_paths(listOfPaths)
 
-        # bad scl classes
+        # 1 for bad scl classes
         for c in list(self.scl_unreliable.keys()):
             cbarr[cbarr==c] = 1
-        # not bad scl classes
+        # 0 for not bad scl classes (set 0 as nodata value)
         cbarr[cbarr!=1] = 0
 
         # add mask to masks
         self.masks['cloud_mask'] = cbarr.astype(np.uint8)
 
         if write:
-            fp = os.path.join(self.epm_path,
+            outfname = os.path.join(self.epm_path,
                             f"cloud_mask__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
             meta.update(dtype=self.masks['cloud_mask'].dtype, nodata=0)
-            with rio.open(fp, 'w', **meta) as dst:
+            with rio.open(outfname, 'w', **meta) as dst:
                 dst.write(self.masks['cloud_mask'])
                 for b in range(0, self.masks['cloud_mask'].shape[0]):
                     dst.set_band_description(b+1, f"{self.eodt.dates[b].strftime('%Y%m%d')}")
 
 
-    def interpolate_series(self, cube:np.ndarray, cbmeta:dict, outfname:str=None):
+    def crop_probab_map(self, cube:np.ndarray, cbmeta:dict, write:bool=False):
         """Interpolate timeseries, where pixels have np.nan value or nodata value
         as defined by cube metadata.
 
         Args:
             cube (np.ndarray): Timeseries as 3D cube (count:bands, height:rows, width:columns).
             cbmeta (dict): Containing all cube metadata, as returned by rasterio.
-            outfname (str, optional):  Absolute filename for the resulted geotif file.
-                Defaults to None. When given, the 3D cube array will be saved.
+            write (bool, optional): If True saves the result as tif image. Defaults to False.
         """
         # convert 3D ndviseries to pandas dataframe. Each column is a pixel's depth.
         cbdf = utils.cbarr2cbdf(cube, cbmeta)
@@ -268,15 +266,6 @@ class CropDelineation():
         # df = df[df.columns[~df.isnull().all()]]
         print(cbdf['pix_4413300'])
 
-        # print("Resample weekly...")
-        # cbdf = cbdf.resample(rule='W').mean()
-        # print(cbdf['pix_4413300'])
-
-        print("Interpolate timely..")
-        cbdf.interpolate(method='time', limit_direction='both',
-            inplace=True, limit=len(cbdf)-2, axis=0)
-        print(cbdf['pix_4413300'])
-
         print("Resample monthly max...")
         cbdf = cbdf.resample(rule='M').max()
         print(cbdf['pix_4413300'])
@@ -290,15 +279,60 @@ class CropDelineation():
         [lambda x: 1 if x>=img_percentile else (0 if x<0 else x/img_percentile)])
 
         # Convert dataframe to array.
-        temp_arr = max_monthly['crop_prob'].to_numpy()
+        res = max_monthly['crop_prob'].to_numpy()
 
         # Reshape as rasterio needs.
-        temp_arr = np.reshape(temp_arr, (1, cbmeta['height'], cbmeta['width']))
+        res = np.reshape(res, (1, cbmeta['height'], cbmeta['width']))
 
-        cbmeta.update(count=1, dtype=temp_arr.dtype)
-        if outfname is not None:
-            assert os.path.isabs(outfname)
-            with rio.open(outfname, 'w', **cbmeta) as dst:
-                dst.write(temp_arr)
+        self.cpm = res
+        cbmeta.update(count=1, dtype=res.dtype)
+        self.cpm_meta = cbmeta
+
+        if write:
+            outfname=os.path.join(self.epm_path,
+                f"cpm__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
+
+            if outfname is not None:
+                assert os.path.isabs(outfname)
+                with rio.open(outfname, 'w', **cbmeta) as dst:
+                    dst.write(res)
 
 
+
+    def active_fields(self, write:bool=False):
+
+        # print(self.ndviseries_meta['nodata'])
+        # print(self.epm_meta['nodata'])
+        # print(self.cpm_meta['nodata'])
+
+        meta = self.ndviseries_meta.copy()
+        meta.update(count=1, dtype=np.uint8, nodata=0)
+
+        active_fields = np.zeros((meta['count'], meta['height'], meta['width']), dtype=np.uint8)
+
+        # edges
+        active_fields[self.epm>0] = 1
+
+        # active fields
+        active_fields[(self.epm<0.1) & (self.cpm>0.45)] = 2
+
+        # inactive fields
+        active_fields[(self.epm<=0.1) & (self.cpm<=0.45)] = 3
+
+        # nodata
+        active_fields[self.epm == self.epm_meta['nodata']] = 0
+        active_fields[self.cpm == self.cpm_meta['nodata']] = 0
+
+        if write:
+            outfname=os.path.join(self.epm_path,
+                f"active_fields__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
+
+            with rio.open(outfname, 'w', **meta) as dst:
+                dst.write_colormap(
+                1, {
+                    0: (0, 0, 0, 0),
+                    1: (0, 0, 0, 255),
+                    2: (3, 100, 0, 255),
+                    3: (166, 217, 62, 255),
+                    })
+                dst.write(active_fields)

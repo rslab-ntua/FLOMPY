@@ -1,13 +1,12 @@
 from engine.sts import sentimeseries
-
-import os
 from edges.delineate import CropDelineation
 
 # datapath = "/home/tars/Desktop/RSLab/FLOMPY/Data/Sentinel-2/Example_Data/"
 # #datapath = "/home/tars/Desktop/RSLab/FLOMPY/Data/Sentinel-2/2020/"
 # AOI = "/home/tars/Desktop/RSLab/FLOMPY/Data/AOI/Flompy_ianos_aoi.geojson"
 
-datapath = "/mnt/a202d601-6efc-44f7-8408-f8322b69b445/RSLab/FLOMPY/Data/Sentinel-2/Example_Data"
+# datapath = "/mnt/a202d601-6efc-44f7-8408-f8322b69b445/RSLab/FLOMPY/Data/Sentinel-2/Example_Data"
+datapath = "/mnt/a202d601-6efc-44f7-8408-f8322b69b445/RSLab/FLOMPY/Data/Sentinel-2/2020"
 corinepath = "/mnt/a202d601-6efc-44f7-8408-f8322b69b445/RSLab/FLOMPY/Data/corine_2018/greece_2018_corine.shp"
 AOI = "/mnt/a202d601-6efc-44f7-8408-f8322b69b445/RSLab/FLOMPY/Data/AOI/Flompy_ianos_aoi.geojson"
 
@@ -33,17 +32,21 @@ eodata.show_metadata()
 
 # create obj
 parcels = CropDelineation(eodata, datapath, corinepath)
-# corine and scl masks
+# create corine and scl masks
 parcels.town_mask(write=False)
 parcels.cloud_mask(write=False)
 
-# edge intensity (0-100) map
-parcels.edge_intensity(write=True)
+# create edge intensity map and apply any created mask (clouds, towns)
+parcels.edge_probab_map(write=True)
 
-# ndvi series
-parcels.ndviseries(write=False)
+# create ndvi series and apply any created mask (clouds, towns)
+parcels.create_series(write=False)
 # fill values removed by cloud mask
-parcels.interpolate_series(
-    parcels.ndviseries,
-    parcels.ndviseries_meta,
-    outfname=os.path.join(parcels.epm_path, 'crop_prob_map.tif'))
+parcels.crop_probab_map(
+    cube = parcels.ndviseries,
+    cbmeta = parcels.ndviseries_meta,
+    write=True,
+    )
+
+# edges, active and inactive fields
+parcels.active_fields(write=True)
