@@ -196,13 +196,39 @@ def cbarr2cbdf(cbarr:np.ndarray, cbmeta:dict)->pd.DataFrame:
 
 def filter_corine(shppath:str)->gpd.GeoDataFrame:
     corine_data = gpd.read_file(shppath)
+    # keep = {
+    #     '211':'Non-irrigated arable land',
+    #     '212':'Permanently irrigated land',
+    #     '213':'Rice fields',
+    #     '221':'Vineyards',
+    #     '222':'Fruit trees and berry plantations',
+    #     '223':'Olive groves'}
+
     keep = {
         '211':'Non-irrigated arable land',
         '212':'Permanently irrigated land',
         '213':'Rice fields',
         '221':'Vineyards',
         '222':'Fruit trees and berry plantations',
-        '223':'Olive groves'}
+        '223':'Olive groves',
+        '231':'Pastures',
+        '241':'Annual crops associated with permanent crops',
+        '242':'Complex cultivation patterns',
+        '243':'Land principally occupied by agriculture',
+        '244':'Agro-forestry areas',
+        '311':'Broad-leaved forest',
+        '312':'Coniferous forest',
+        '313':'Mixed forest',
+        '321':'Natural grasslands',
+        '322':'Moors and heathland',
+        '323':'Sclerophyllous vegetation',
+        '324':'Transitional woodland-shrub',
+        '331':'Beaches',
+        '332':'Bare rocks',
+        '333':'Sparsely vegetated areas',
+        '334':'Burnt areas',
+        '335':'Glaciers and perpetual snow',
+        }
 
     corine_data['Code_18'] = corine_data['Code_18'].astype(str)
     corine_data=corine_data[corine_data['Code_18'].isin(list(keep.keys()))]

@@ -1,6 +1,5 @@
 import os
-import struct
-from cupshelpers import Printer
+import datetime as dt
 from matplotlib.pyplot import axis
 import numpy as np
 import pandas as pd
@@ -11,13 +10,13 @@ from engine.sts import sentimeseries
 from edges import utils
 
 class CropDelineation():
-    def __init__(self, eodata:sentimeseries, epm_path:str, corine_path:str):
+    def __init__(self, eodata:sentimeseries, dst_path:str, corine_path:str):
         """Compute edge probability map for dates in given sentimeseries object.
 
         Args:
             eodata (sentimeseries): sentimeseries object, after having bands 11, 12 resamled
                 to 10 meters and masked using an area of interest.
-            epm_path (str): Fullpath where edge probability map is saved.
+            dst_path (str): Fullpath where to save results.
 
         Raises:
             TypeError: [description]
@@ -25,8 +24,11 @@ class CropDelineation():
         self.eodt = eodata
         self.tmp_rng = (self.eodt.dates[0].strftime('%Y%m%d'),
                             self.eodt.dates[-1].strftime('%Y%m%d'))
-        self.epm_path = epm_path
         self.corine_path = corine_path
+
+        self.dst_path = os.path.join(dst_path, f"result__{dt.datetime.now().strftime('%Y%m%dT%H%M')}")
+        os.mkdir(self.dst_path)
+
         self.senbands = ['B03_masked',
                         'B04_masked',
                         'B08_masked',
@@ -108,7 +110,7 @@ class CropDelineation():
 
         # create cube using edge estimations of all dates
         cbarr, cb_metadata, _ = utils.cube_by_paths(self.estim_paths,
-            # outfname=os.path.join(self.epm_path, 'estimations_cube.tif')
+            # outfname=os.path.join(self.dst_path, 'estimations_cube.tif')
             )
         # mask scl (give nodata value where clouds exist)
         if 'cloud_mask' in self.masks:
@@ -142,7 +144,7 @@ class CropDelineation():
         self.epm_meta = cb_metadata
 
         if write:
-            outfname = os.path.join(self.epm_path,
+            outfname = os.path.join(self.dst_path,
                                 f"epm__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
 
             with rio.open(outfname, 'w', **cb_metadata) as dst:
@@ -171,7 +173,7 @@ class CropDelineation():
         self.ndviseries_meta = meta
 
         if write:
-            outfname = os.path.join(self.epm_path,
+            outfname = os.path.join(self.dst_path,
                             f"ndviseries__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
             with rio.open(outfname, 'w', **self.ndviseries_meta) as dst:
                 dst.write(self.ndviseries)
@@ -205,7 +207,7 @@ class CropDelineation():
         self.masks['town_mask'] = town_mask[np.newaxis,:,:]
 
         if write:
-            outfname = os.path.join(self.epm_path,
+            outfname = os.path.join(self.dst_path,
                             f"town_mask__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
             mask_meta.update(dtype=self.masks['town_mask'].dtype, nodata=0, count=1)
             with rio.open(outfname, 'w', **mask_meta) as dst:
@@ -233,7 +235,7 @@ class CropDelineation():
         self.masks['cloud_mask'] = cbarr.astype(np.uint8)
 
         if write:
-            outfname = os.path.join(self.epm_path,
+            outfname = os.path.join(self.dst_path,
                             f"cloud_mask__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
             meta.update(dtype=self.masks['cloud_mask'].dtype, nodata=0)
             with rio.open(outfname, 'w', **meta) as dst:
@@ -264,11 +266,11 @@ class CropDelineation():
         # Replace nodata value with np.nan
         cbdf.replace(cbmeta['nodata'], np.nan, inplace=True)
         # df = df[df.columns[~df.isnull().all()]]
-        print(cbdf['pix_4413300'])
+        # print(cbdf['pix_4413300'])
 
         print("Resample monthly max...")
         cbdf = cbdf.resample(rule='M').max()
-        print(cbdf['pix_4413300'])
+        # print(cbdf['pix_4413300'])
 
         max_monthly = cbdf.max(axis=0)
         # 95th Percentile of all the NDVI values in TILE & in depth. -or NDVImax for scenario No.1-.
@@ -289,7 +291,7 @@ class CropDelineation():
         self.cpm_meta = cbmeta
 
         if write:
-            outfname=os.path.join(self.epm_path,
+            outfname=os.path.join(self.dst_path,
                 f"cpm__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
 
             if outfname is not None:
@@ -324,7 +326,7 @@ class CropDelineation():
         active_fields[self.cpm == self.cpm_meta['nodata']] = 0
 
         if write:
-            outfname=os.path.join(self.epm_path,
+            outfname=os.path.join(self.dst_path,
                 f"active_fields__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
 
             with rio.open(outfname, 'w', **meta) as dst:
