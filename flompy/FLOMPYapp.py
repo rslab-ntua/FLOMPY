@@ -259,6 +259,7 @@ class FloodwaterEstimation:
 
 
         #--- Creating directory structure
+        if not os.path.exists(self.snap_dir): os.mkdir(self.snap_dir)
         if not os.path.exists(self.projectfolder): os.mkdir(self.projectfolder)
         self.graph_dir = os.path.join(self.scriptsfolder,'Preprocessing_S1_data/Graphs')
         assert os.path.exists(self.graph_dir)
