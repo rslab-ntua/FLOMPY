@@ -9,7 +9,7 @@ from rasterio.enums import Resampling
 from rasterio.warp import reproject, Resampling
 from rasterio.mask import mask
 import numpy as np
-from .exceptions import BandNotFound, PathError
+from engine.exceptions import BandNotFound, PathError
 
 class Clipper():
 
@@ -142,14 +142,14 @@ class Clipper():
             
 
     @staticmethod
-    def clipByMask(image, shapefile, band = None, new = 'masked', resize = False, method = None, ext = 'tif'):
+    def clipByMask(image, shapefile, band = None, new = None, resize = False, method = None, ext = 'tif'):
         """Mask image based on a shapefile mask.
 
         Args:
             image (senimage): senimage object
             shapefile (str, path-like): Path to shapefile mask
             band (str, optional): Band to be applied. Note that the band name must be the same with the object attribute name. Defaults to None
-            new (str, optional): Piece of string added to the end of the new filename. Defaults to 'masked'
+            new (str, optional): Piece of string added to the end of the new filename. Defaults to None. If None then it names the new data with the shapefile name
             resize (bool, optional): If True resizes the output resize_val times. Defaults to False
             method (rasterio.enum.Resampling, optional): Resampling method. Defaults to None
             ext (str, optional): Extention of the image. Defaults to 'tif'
@@ -182,6 +182,8 @@ class Clipper():
                         else:
                             raise PathError("Could not find a path to store the image.")
 
+                if new is None:
+                    new = os.path.splitext(os.path.basename(shapefile))[0]
                 # New name for output image
                 out_tif = os.path.join(path, "T{}_{}_{}_{}.{}".format(image.tile_id, image.str_datetime, band, new, ext))
 
