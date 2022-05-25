@@ -3,8 +3,13 @@ import datetime as dt
 from matplotlib.pyplot import axis
 import numpy as np
 import pandas as pd
+from geopandas import gpd
+from shapely.geometry import Polygon
 import rasterio as rio
 from rasterio import features
+from rasterio.mask import mask
+from scipy.ndimage import binary_opening
+from rasterstats import zonal_stats
 import multiprocessing as mp
 from engine.sts import sentimeseries
 from edges import utils
@@ -301,11 +306,7 @@ class CropDelineation():
 
 
 
-    def active_fields(self, write:bool=False):
-
-        # print(self.ndviseries_meta['nodata'])
-        # print(self.epm_meta['nodata'])
-        # print(self.cpm_meta['nodata'])
+    def active_fields(self):
 
         meta = self.ndviseries_meta.copy()
         meta.update(count=1, dtype=np.uint8, nodata=0)
@@ -325,16 +326,102 @@ class CropDelineation():
         active_fields[self.epm == self.epm_meta['nodata']] = 0
         active_fields[self.cpm == self.cpm_meta['nodata']] = 0
 
-        if write:
-            outfname=os.path.join(self.dst_path,
-                f"active_fields__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
+        self.active_fields_fpath=os.path.join(self.dst_path,
+            f"active_fields__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
 
-            with rio.open(outfname, 'w', **meta) as dst:
-                dst.write_colormap(
-                1, {
-                    0: (0, 0, 0, 0),
-                    1: (0, 0, 0, 255),
-                    2: (3, 100, 0, 255),
-                    3: (166, 217, 62, 255),
-                    })
-                dst.write(active_fields)
+        with rio.open(self.active_fields_fpath, 'w', **meta) as dst:
+            dst.write_colormap(
+            1, {
+                0: (0, 0, 0, 0),
+                1: (0, 0, 0, 255),
+                2: (3, 100, 0, 255),
+                3: (166, 217, 62, 255),
+                })
+            dst.write(active_fields)
+
+
+
+    def delineation(self, aoi_path:str, unet_pred_path:str):
+        print('Delineation')
+
+        # Threshold epm to mean value of the image (edge=1, noedge=0)
+        threshold = np.nanmean(self.epm)
+        thres_epm = self.epm > threshold
+
+        # read AOI in order to clip UNet predicted image; due to UNet padding
+        # has different dimensions
+        aoi=gpd.read_file(aoi_path)
+        aoi=aoi.to_crs(self.epm_meta['crs'])
+
+        # Read UNet predicted image (edge=1, noedge=0)
+        with rio.open(unet_pred_path, 'r') as src:
+            pred, _ = mask(src, aoi.geometry, crop=True, nodata=0)
+
+        pred = pred.astype(np.bool)
+
+        # Combine thresholded EPM and UNet prediction (edge=1, noedge=0)
+        combined_edges = np.logical_or(thres_epm, pred)
+
+        # Invert and convert from bool to binary (edge=0, noedge=1)
+        combined_edges = 1-combined_edges
+        self.combined_edges = combined_edges
+
+
+
+    def flooded_fields(self, flood_tif_path:str):
+        print('Flooded fields')
+
+        # Morphological Opening
+        opening = binary_opening(self.combined_edges, structure=np.ones((1,2,2))).astype(np.int16)
+
+        # Vectorize fields
+        vfields = ({'properties': {}, 'geometry': s} for i, (s, v) in enumerate(
+                features.shapes(opening, connectivity=8, transform=self.epm_meta['transform'])) if v != 0)
+        vfields = gpd.GeoDataFrame.from_features(vfields, crs=self.epm_meta['crs'])
+
+        # Delete holes & zero buffer to correct self-intersected geometries
+        vfields.geometry = vfields.geometry.apply(lambda x:Polygon(x.exterior.coords))
+        vfields.geometry = vfields.geometry.buffer(0)
+
+        # Read flood image
+        with rio.open(flood_tif_path, 'r') as src:
+            flood_meta = src.meta
+            flood_img = src.read()
+
+        # Vectorize flood
+        flood = ({'properties': {}, 'geometry': s} for i, (s, v) in enumerate(
+                features.shapes(flood_img, connectivity=8, transform=flood_meta['transform'])) if v != 0)
+        flood = gpd.GeoDataFrame.from_features(flood, crs=flood_meta['crs']).to_crs(self.epm_meta['crs'])
+
+        # Zero buffer to correct self-intersected geometries & save as shp
+        flood.geometry = flood.geometry.buffer(0)
+        # Many geometries to one multipolygon geometry
+        flood = flood.dissolve()
+
+        # Spatial join fields and flood (CRS !)
+        flood_id, flooded_field_ids = vfields.sindex.query_bulk(flood.geometry, predicate='intersects')
+        flooded_fields = vfields.loc[flooded_field_ids]
+
+        # Major voting to determine cultivated/not_cultivated flooded fields
+        flooded_fields['maj_vote'] = gpd.GeoDataFrame(
+            zonal_stats(vectors=flooded_fields['geometry'], 
+                        raster=self.active_fields_fpath, 
+                        stats='majority'))['majority']
+
+        def actInact(x):
+            if x['maj_vote'] == 2:
+                return 'cultivated'
+            elif x['maj_vote'] == 3:
+                return 'not_cultivated'
+            elif x['maj_vote'] == 1:
+                return 'edge'
+            else:
+                return 'unknown_state'
+
+        flooded_fields['status'] = flooded_fields.apply(lambda x: actInact(x), axis=1)
+
+        # Save flooded fields
+        flooded_fields_fpath=os.path.join(self.dst_path,
+            f"flooded_fields__{self.tmp_rng[0]}_{self.tmp_rng[1]}.shp")
+
+        flooded_fields.to_file(flooded_fields_fpath)
