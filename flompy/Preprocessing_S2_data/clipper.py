@@ -184,6 +184,7 @@ class Clipper():
 
                 if new is None:
                     new = os.path.splitext(os.path.basename(shapefile))[0]
+                    print(new)
                 # New name for output image
                 out_tif = os.path.join(path, "T{}_{}_{}_{}.{}".format(image.tile_id, image.str_datetime, band, new, ext))
 

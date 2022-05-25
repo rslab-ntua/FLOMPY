@@ -190,7 +190,7 @@ class sentimeseries(timeseries):
         else:
             raise BBOXError("Currently works only with .createbbox() method.")
 
-    def clipbyMask(self, shapefile, image = None, band = None, resize = False, method = None):
+    def clipbyMask(self, shapefile, image = None, band = None, resize = False, method = None, new = None):
         """Masks an image or the complete time series with a shapefile.
 
         Args:
@@ -207,19 +207,19 @@ class sentimeseries(timeseries):
                 logging.info("Masking all time series with {}...".format(shapefile))
                 for im in self.data:
                     for b in bands:
-                        Clipper.clipByMask(im, shapefile, band = b, resize = resize, method = method)
+                        Clipper.clipByMask(im, shapefile, band = b, resize = resize, method = method, new = new)
             else:
                 logging.info("Masking band {} for all time series with {}...".format(band, shapefile))
                 for im in self.data:
-                    Clipper.clipByMask(im, shapefile, band = band, resize = resize, method = method)
+                    Clipper.clipByMask(im, shapefile, band = band, resize = resize, method = method, new = new)
         else:
             if band is None:
                 logging.info("Masking {} with {}...".format(image, shapefile))
                 for b in bands:
-                    Clipper.clipByMask(image, shapefile, band = b, resize = resize, method = method)
+                    Clipper.clipByMask(image, shapefile, band = b, resize = resize, method = method, new = new)
             else:
                 logging.info("Masking band {} of image {} with {}...".format(band, image, shapefile))
-                Clipper.clipByMask(image, shapefile, band = band, resize = resize, method = method)
+                Clipper.clipByMask(image, shapefile, band = band, resize = resize, method = method, new = new)
         
     def remove_orbit(self, orbit):
         """Remove images with specific orbit.

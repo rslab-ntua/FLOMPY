@@ -5,7 +5,10 @@ import pandas as pd
 import rasterio as rio
 import geopandas as gpd
 from scipy import signal
-
+import requests
+from requests import exceptions
+import json
+import shapely.wkt
 
 def equation_3(fpaths:list, kernel_N_weight:pd.DataFrame)->list:
     """Square root of gradient between 2 pixels, in selected orientantion, for entire image.
@@ -13,12 +16,10 @@ def equation_3(fpaths:list, kernel_N_weight:pd.DataFrame)->list:
     ignored to fearther computations.
     For all bands in an fpaths, for one kernel and corresponding weight. All kernels are flipped
     before convolution.
-
     Args:
         fpaths (list): List of fullpaths for bands b03, b04, b08, b11, b12.
         kernel_N_weight (pd.DataFrame): Row of iterable dataframe with 2 columns with kernels
             and their weights. 
-
     Returns:
         list: List containing 2D arrays, one for each kernel. Result for one week (or date),
         for one pixel (orientation of convolution).
@@ -43,12 +44,10 @@ def equation_3(fpaths:list, kernel_N_weight:pd.DataFrame)->list:
 
 def equation_4(ndvi:np.array, kernel_N_weight:pd.DataFrame)->list:
     """Convolution only for NDVI image.
-
     Args:
         ndvi (np.array): Image as 2D array.
         kernel_N_weight (pd.DataFrame): Row of iterable dataframe with 2 columns with kernels
             and their weights. 
-
     Returns:
         list: List containg 2D arrays, one for each kernel.
     """
@@ -62,14 +61,12 @@ def equation_4(ndvi:np.array, kernel_N_weight:pd.DataFrame)->list:
 
 def equation_5(ndvi:np.array, dweeks:list, dndvi:list, kernels_N_weights:pd.DataFrame)->np.array:
     """Compute edge estimation for one date.
-
     Args:
         ndvi (np.array): NDVI image as 2D array.
         dweeks (list): Result of equation_3. List containing 2D arrays, one for each kernel.
         dndvi (list): Result of equation_4. List containg 2D arrays, one for each kernel.
         kernels_N_weights (pd.DataFrame): Row of iterable dataframe with 2 columns with kernels
             and their weights.
-
     Returns:
         np.array: Edge estimation image as 2D array.
     """
@@ -89,7 +86,6 @@ def equation_5(ndvi:np.array, dweeks:list, dndvi:list, kernels_N_weights:pd.Data
 
 def wkernels()->pd.DataFrame:
     """[summary]
-
     Returns:
         pd.DataFrame: [description]
     """
@@ -113,13 +109,11 @@ def wkernels()->pd.DataFrame:
 
 def cube_by_paths(listOfPaths:list, outfname:str=None, **kwargs)->list:
     """Concatenate images as cube.
-
     Args:
         listOfPaths (list): List containg fullpaths of images to concatenate on
             time-axis.
         outfname (str, optional): Absolute filename for the resulted geotif file.
             Defaults to None. When given, the 3D cube array will be saved.
-
     Returns:
         list: Cube as 3D np.array, cube's metadata as dict, list of strings containing
             bandnames used to produce the cube.
@@ -159,11 +153,9 @@ def cube_by_paths(listOfPaths:list, outfname:str=None, **kwargs)->list:
 
 def cbdf2cbarr(cbdf:pd.DataFrame, cbmeta:dict)->np.ndarray:
     """Convert dataframe of cube to corresponding 3D cube array.
-
     Args:
         cbdf (pd.DataFrame): Indexed as (rows:bands, row wise read, columns:individual pixels)
         cbmeta (dict): Containing all cube metadata, as returned by rasterio.
-
     Returns:
         np.ndarray: Indexed as 3D tensor (count:bands, height:rows, width:columns)
     """
@@ -178,11 +170,9 @@ def cbdf2cbarr(cbdf:pd.DataFrame, cbmeta:dict)->np.ndarray:
 
 def cbarr2cbdf(cbarr:np.ndarray, cbmeta:dict)->pd.DataFrame:
     """Convert 3D cube array to corresponding dataframe of the cube.
-
     Args:
         cbarr (np.ndarray): Indexed as tensor (count:bands, height:rows, width:columns)
         cbmeta (dict): Containing all cube metadata, as returned by rasterio.
-
     Returns:
         pd.DataFrame: Indexed as (rows:bands, row wise read, columns:individual pixels)
     """
@@ -196,14 +186,105 @@ def cbarr2cbdf(cbarr:np.ndarray, cbmeta:dict)->pd.DataFrame:
 
 def filter_corine(shppath:str)->gpd.GeoDataFrame:
     corine_data = gpd.read_file(shppath)
+    # keep = {
+    #     '211':'Non-irrigated arable land',
+    #     '212':'Permanently irrigated land',
+    #     '213':'Rice fields',
+    #     '221':'Vineyards',
+    #     '222':'Fruit trees and berry plantations',
+    #     '223':'Olive groves'}
+
     keep = {
         '211':'Non-irrigated arable land',
         '212':'Permanently irrigated land',
         '213':'Rice fields',
         '221':'Vineyards',
         '222':'Fruit trees and berry plantations',
-        '223':'Olive groves'}
+        '223':'Olive groves',
+        '231':'Pastures',
+        '241':'Annual crops associated with permanent crops',
+        '242':'Complex cultivation patterns',
+        '243':'Land principally occupied by agriculture',
+        '244':'Agro-forestry areas',
+        '311':'Broad-leaved forest',
+        '312':'Coniferous forest',
+        '313':'Mixed forest',
+        '321':'Natural grasslands',
+        '322':'Moors and heathland',
+        '323':'Sclerophyllous vegetation',
+        '324':'Transitional woodland-shrub',
+        '331':'Beaches',
+        '332':'Bare rocks',
+        '333':'Sparsely vegetated areas',
+        '334':'Burnt areas',
+        '335':'Glaciers and perpetual snow',
+        }
 
     corine_data['Code_18'] = corine_data['Code_18'].astype(str)
     corine_data=corine_data[corine_data['Code_18'].isin(list(keep.keys()))]
     return corine_data
+
+
+def _wkt2esri(wkt:str)->str:
+    """Converts WKT geometries to arcGIS geometry strings.
+    Args:
+        wkt (str): WKT geometry string
+    Returns:
+        str: ESRI arcGIS polygon geometry string
+    """
+    geom = shapely.wkt.loads(wkt)
+    rings = None
+    # Testing for polygon type
+    if geom.geom_type == 'MultiPolygon':
+        rings = []
+        for pg in geom.geoms:
+            rings += [list(pg.exterior.coords)] + [list(interior.coords) for interior in pg.interiors]    
+    elif geom.geom_type == 'Polygon':
+        rings = [list(geom.exterior.coords)] + [list(interior.coords) for interior in geom.interiors]
+    else:
+        print("Shape is not a polygon")
+        return None
+            
+    # Convert to esri geometry json    
+    esri = json.dumps({'rings': rings})
+
+    return esri
+
+def corine(aoi:str, to_file:bool = False, fname:str = "corine_2018.shp")->gpd.GeoDataFrame:
+    """Downloads Corine Land Cover 2018 data from Copernicus REST API.
+    Args:
+        aoi (str): Path to file with the region of interest
+        to_file (bool, optional): Save result to file. Defaults to False
+        fname (str, optional): Path and name of the created file. Defaults to "corine_2018.shp"
+    Returns:
+        gpd.GeoDataFrame: Corine Land Cover 2018 data
+    """
+    HTTP_OK = 200
+
+    geoms = gpd.read_file(aoi).dissolve()
+    polygons = list(geoms.geometry)
+    wkt = f"{polygons[0]}"
+    esri = _wkt2esri(wkt)
+    # Build URL for retrieving data
+    server = "https://image.discomap.eea.europa.eu/arcgis/rest/services/Corine/CLC2018_WM/MapServer/0/query?"
+    payload = {
+        "geometry": esri, 
+        "f": "GeoJSON",
+        "inSR": geoms.crs.to_epsg(),
+        "geometryType": "esriGeometryPolygon",
+        "spatialRel": "esriSpatialRelIntersects",
+        "returnGeometry": True
+        }
+    print ("Starting retrieval...")
+    request = requests.get(server, params = payload)
+    # Check if server didn't respond to HTTP code = 200
+    if request.status_code != HTTP_OK:
+        raise exceptions.HTTPError("Failed retrieving POWER data, server returned HTTP code: {} on following URL {}.".format(request.status_code, request.url))
+    # In other case is successful
+    print ("Successfully retrieved data!")
+    json_data = request.json()
+    data = gpd.GeoDataFrame.from_features(json_data)
+    if to_file:
+        data.to_file(fname)
+    
+    return data

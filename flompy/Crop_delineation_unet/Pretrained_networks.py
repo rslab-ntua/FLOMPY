@@ -39,7 +39,7 @@ def get_weights(uuid, name, network_path):
 def read_tif_FLOMPY(index, IMAGE_DIRS,  fit_size=None):
     bands_data = []
     for band in ["B02", "B03", "B04", "B08"]:
-        base_image_name = glob.glob(IMAGE_DIRS[index]+'/*{}*.tif'.format(band))[0]
+        base_image_name = glob.glob(IMAGE_DIRS[index]+'/GRANULE/*/IMG_DATA/R10m/*{}*.tif'.format(band))[0]
         bands_data.append(gdal.Open(base_image_name).ReadAsArray())
 
     if fit_size is None:
@@ -229,15 +229,15 @@ def Crop_delinieation_Unet(model_name, model_dir, BASE_DIR , results_pretrained,
     PRETRAINED_MODELS = {
         "FCNDK5": (
             "653e6d98-5974-11eb-a09d-0242ac1c0002",
-            os.path.join(model_dir, "FCN-DK5"),
+            os.path.join(model_dir, "Crop_delineation_unet/FCN-DK5"),
         ),
         "FCNDK6": (
             "2111a6e4-5a5a-11eb-99e0-0242ac1c0002",
-            os.path.join(model_dir, "FCN-DK6"),
+            os.path.join(model_dir, "Crop_delineation_unet/FCN-DK6"),
         ),
         "UNet3": (
             "371dd574-5b78-11eb-8f58-0242ac1c0002",
-            os.path.join(model_dir, "UNet3"),
+            os.path.join(model_dir, "Crop_delineation_unet/UNet3"),
         ),
     }
     
@@ -255,6 +255,8 @@ def Crop_delinieation_Unet(model_name, model_dir, BASE_DIR , results_pretrained,
             y = (y // 512 + 1) * 512
         fit_in_size = (x, y)
 
+    A = read_tif_FLOMPY(0, IMAGE_DIRS, fit_in_size)
+
     model_builder_fun: typing.Callable = build_network(model_name)
     model = model_builder_fun(x, y, bands, 2)
     model.load_weights(get_weights(model_uuid, model_name, model_path))
@@ -263,7 +265,7 @@ def Crop_delinieation_Unet(model_name, model_dir, BASE_DIR , results_pretrained,
         os.makedirs(results_pretrained)
 
     for i in tqdm(range(len(IMAGE_DIRS))):
-        src =  rasterio.open(os.path.join(BASE_DIR, IMAGE_DIRS[i]+ "_B02_masked.tif"))
+        src =  rasterio.open(glob.glob(IMAGE_DIRS[i]+'/GRANULE/*/IMG_DATA/R10m/*B02_*.tif')[0])
         A = normalize_array(A)
 
         input = np.expand_dims(A, 0)
@@ -276,7 +278,7 @@ def Crop_delinieation_Unet(model_name, model_dir, BASE_DIR , results_pretrained,
         preds = 255 * np.argmax(preds, axis=2).astype(np.uint8)
 
         with rasterio.open(
-            os.path.join(results_pretrained, os.path.dirname(IMAGE_DIRS[i]) + "_" + model_name + ".tif" ),
+            os.path.join(results_pretrained, os.path.basename(IMAGE_DIRS[i]).split('.')[0] + "_" + model_name + ".tif" ),
             "w",
             driver="GTiff",
             height=preds.shape[0],

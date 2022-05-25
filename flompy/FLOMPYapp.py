@@ -71,12 +71,10 @@ STEP_LIST = [
     'Download_Precipitation_data',
     'Download_S1_data',
     'Preprocessing_S1_data',
-    'Download_S2_data',
     'Statistical_analysis',
     'Floodwater_classification',
-    'Crop_delineation',
-    'Crop_field_classification',
-    'Extracted_damaged_crop_fields',]
+    'Download_S2_data',
+    'Crop_delineation',]
 
 ##########################################################################
 STEP_HELP = """Command line options for steps processing with \n names are chosen from the following list:
@@ -259,7 +257,7 @@ class FloodwaterEstimation:
 
 
         #--- Creating directory structure
-        if not os.path.exists(self.snap_dir): os.mkdir(self.snap_dir)
+        if not os.path.exists(self.snap_dir): os.makedirs(self.snap_dir)
         if not os.path.exists(self.projectfolder): os.mkdir(self.projectfolder)
         self.graph_dir = os.path.join(self.scriptsfolder,'Preprocessing_S1_data/Graphs')
         assert os.path.exists(self.graph_dir)
@@ -402,9 +400,9 @@ class FloodwaterEstimation:
         eodata.getVI("NDMI")
         
         # Clip data
-        eodata.clipbyMask(self.geojson_S1, resize = True)
-        eodata.clipbyMask(self.geojson_S1, band = "NDMI", resize = True)
-        eodata.clipbyMask(self.geojson_S1, band = "NDVI")
+        eodata.clipbyMask(self.geojson_S1, resize = True, new ="masked")
+        eodata.clipbyMask(self.geojson_S1, band = "NDMI", resize = True, new ="masked")
+        eodata.clipbyMask(self.geojson_S1, band = "NDVI", new ="masked")
         
         
         # Show
@@ -413,33 +411,43 @@ class FloodwaterEstimation:
         self.S2timeseries = eodata
         # create obj
         parcels = CropDelineation(eodata = self.S2timeseries,
-                                  epm_path = self.Results_crop_delineation,
+                                  dst_path = self.Results_crop_delineation,
                                   corine_path = self.corine_vectorfile)
         # corine and scl masks
         parcels.town_mask(write=False)
         parcels.cloud_mask(write=False)
         
         # edge intensity (0-100) map
-        parcels.edge_intensity(write=True)
+        parcels.edge_probab_map(write=True)
         
-        # ndvi series
-        parcels.ndviseries(write=False)
-        # fill values removed by cloud mask
-        parcels.interpolate_series(
-            parcels.ndviseries,
-            parcels.ndviseries_meta,
-            outfname=os.path.join(parcels.epm_path, 'crop_prob_map.tif'))
-        
-        # Pretrained 
-        
-        #Crop_delinieation_Unet(model_name = 'UNet3',
-        #                       model_dir = self.scriptsfolder,
-        #                       BASE_DIR = self.S2_dir,
-        #                       results_pretrained = self.Results_crop_delineation_unet,
-        #                       force_cpu = True )
+        # create ndvi series and apply any created mask (clouds, towns)
+        parcels.create_series(write=False)
 
-        # add merging part of Unet + Roi et al., crop delineation
-    
+        # fill values removed by cloud mask
+        parcels.crop_probab_map(
+            cube = parcels.ndviseries,
+            cbmeta = parcels.ndviseries_meta,
+            write=True,
+            )
+
+        # edges, active and inactive fields Map
+        parcels.active_fields()
+
+        # Pretrained 
+        Crop_delinieation_Unet(model_name = 'UNet3',
+                               model_dir = self.scriptsfolder,
+                               BASE_DIR = self.S2_dir,
+                               results_pretrained = self.Results_crop_delineation_unet,
+                               force_cpu = True )
+
+
+        # Delineate fields: Combine EPM and UNet
+        parcels.delineation(self.geojson_S1, os.path.join(self.Results_crop_delineation_unet,
+        'UNet3_crop_delineation.tif'))
+
+        # Characterize Cultivated and Not-Cultivated fields
+        parcels.flooded_fields(os.path.join(self.Results_dir,'Flood_map_{}.tif'.format(self.projectname)))
+
         return 0 
     
 
