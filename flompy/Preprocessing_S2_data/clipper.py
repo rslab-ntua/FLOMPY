@@ -9,7 +9,7 @@ from rasterio.enums import Resampling
 from rasterio.warp import reproject, Resampling
 from rasterio.mask import mask
 import numpy as np
-from engine.exceptions import BandNotFound, PathError
+from .exceptions import BandNotFound, PathError
 
 class Clipper():
 
