@@ -1,6 +1,5 @@
 import os, glob
 import typing
-from argparse import ArgumentParser
 from tqdm import tqdm
 from osgeo import gdal
 
@@ -37,14 +36,11 @@ def get_weights(uuid, name, network_path):
     return f_weights
 
 
-def read_tif_FLOMPY(index, BASE_DIR, IMAGE_DIRS,  fit_size=None):
+def read_tif_FLOMPY(index, IMAGE_DIRS,  fit_size=None):
     bands_data = []
-
     for band in ["B02", "B03", "B04", "B08"]:
-        base_image_name = os.path.join(BASE_DIR, IMAGE_DIRS[index])
-        temp_image= glob.glob(base_image_name+'/GRANULE/L2A_*/IMG_DATA/R10m/*_{}_masked.tif'.format(band))[0]
-        with rasterio.open(temp_image) as dset:
-            bands_data.append(dset.read(1))
+        base_image_name = glob.glob(IMAGE_DIRS[index]+'/*{}*.tif'.format(band))[0]
+        bands_data.append(gdal.Open(base_image_name).ReadAsArray())
 
     if fit_size is None:
         return np.stack(bands_data, axis=-1)
@@ -225,33 +221,30 @@ def nparray_to_tiff(nparray, reference_gdal_dataset, target_gdal_dataset):
     target_ds.GetRasterBand(1).WriteArray(nparray)  
     
     target_ds = None
-    
-
-
 
 def Crop_delinieation_Unet(model_name, model_dir, BASE_DIR , results_pretrained, force_cpu = True):
     
     IMAGE_DIRS = glob.glob(BASE_DIR+'/*.SAFE')
-    print(IMAGE_DIRS)
+    
     PRETRAINED_MODELS = {
         "FCNDK5": (
             "653e6d98-5974-11eb-a09d-0242ac1c0002",
-            os.path.join(model_dir, "Crop_delineation_unet/FCN-DK5"),
+            os.path.join(model_dir, "FCN-DK5"),
         ),
         "FCNDK6": (
             "2111a6e4-5a5a-11eb-99e0-0242ac1c0002",
-            os.path.join(model_dir, "Crop_delineation_unet/FCN-DK6"),
+            os.path.join(model_dir, "FCN-DK6"),
         ),
         "UNet3": (
             "371dd574-5b78-11eb-8f58-0242ac1c0002",
-            os.path.join(model_dir, "Crop_delineation_unet/UNet3"),
+            os.path.join(model_dir, "UNet3"),
         ),
     }
     
     model_uuid, model_path = PRETRAINED_MODELS[model_name]
     fit_in_size = None
     
-    A = read_tif_FLOMPY(0, BASE_DIR, IMAGE_DIRS, fit_in_size)
+    A = read_tif_FLOMPY(0, IMAGE_DIRS, fit_in_size)
     x, y, bands = A.shape
 
     if "unet" in model_name.lower():
@@ -270,12 +263,11 @@ def Crop_delinieation_Unet(model_name, model_dir, BASE_DIR , results_pretrained,
         os.makedirs(results_pretrained)
 
     for i in tqdm(range(len(IMAGE_DIRS))):
-        image_temp = glob.glob(os.path.join(BASE_DIR, IMAGE_DIRS[i])+'/GRANULE/L2A_*/IMG_DATA/R10m/*_B02_masked.tif')[0]
-        print(image_temp)
-        src =  rasterio.open(image_temp)
+        src =  rasterio.open(os.path.join(BASE_DIR, IMAGE_DIRS[i]+ "_B02_masked.tif"))
         A = normalize_array(A)
 
         input = np.expand_dims(A, 0)
+        
         if force_cpu:
             with tf.device("/CPU:0"):
                 preds = model.predict(input)[0]
