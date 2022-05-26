@@ -440,7 +440,6 @@ class FloodwaterEstimation:
                                results_pretrained = self.Results_crop_delineation_unet,
                                force_cpu = True )
 
-
         # Delineate fields: Combine EPM and UNet
         parcels.delineation(self.geojson_S1, os.path.join(self.Results_crop_delineation_unet,
         'UNet3_crop_delineation.tif'))
