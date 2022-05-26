@@ -19,11 +19,6 @@ This file is part of FLOMPY - FLOod Mapping PYthon toolbox.
     You should have received a copy of the GNU General Public License
     along with FLOMPY. If not, see <https://www.gnu.org/licenses/>.
 
-Flompy Team:  Kleanthis Karamvasis,
-             Ioanna Zotou,
-             Alekos Falagas,
-             Olympia Gounari,
-             Vasileios Tsironis
 """
 
 import os
@@ -33,37 +28,20 @@ import argparse
 
 from utils.read_template_file import read_template
 from utils.read_AOI import Coords_to_geojson, Input_vector_to_geojson
-
-from Download.Sentinel_1_download import Download_S1_data, get_flood_image
-from Download.Sentinel_2_download import Download_S2_data
+from Download.Sentinel_1_download import Download_S1_data
 from Download.Download_orbits import download_orbits
 from Download.Download_ERA5 import Get_ERA5_data_time_period
-
 from Preprocessing_S1_data.Classify_S1_images import Get_images_for_baseline_stack
-from Preprocessing_S1_data.Preprocessing_S1_data import Run_Preprocessing
-from Preprocessing_S2_data.sts import sentimeseries
-
+from Preprocessing_S1_data.Preprocessing_S1_data import Run_Preprocessing, get_flood_image
 from Statistical_analysis.Generate_aux import get_S1_aux
 from Statistical_analysis.calc_t_scores import Calc_t_scores
 from Floodwater_classification.Classification import Get_flood_map
-
-from Crop_delineation.delineate import CropDelineation
-from Crop_delineation_unet.Pretrained_networks import Crop_delinieation_Unet
-
 # from Validation.Validation import Accuracy_metrics_calc
 # from Validation.EMS_preparation import rasterize
 
 print('FLOod Mapping PYthon toolbox (FLOMPY) v.1.0')
 print('Copyright (c) 2022 Kleanthis Karamvasis, karamvasis_k@hotmail.com')
 print('Remote Sensing Laboratory of National Technical University of Athens')
-print('-----------------------------------------------------------------')
-
-print( 'Flompy Team:')
-print( 'Kleanthis Karamvasis')
-print( 'Ioanna Zotou')
-print( 'Alekos Falagas')
-print( 'Olympia Gounari')
-print( 'Vasileios Tsironis')
 print('-----------------------------------------------------------------')
 print('License: GNU GPL v3+')
 print('-----------------------------------------------------------------')
@@ -74,17 +52,21 @@ STEP_LIST = [
     'Download_S1_data',
     'Preprocessing_S1_data',
     'Statistical_analysis',
-    'Floodwater_classification',
-    'Download_S2_data',
-    'Crop_delineation',]
+    'Floodwater_classification',]
 
 ##########################################################################
 STEP_HELP = """Command line options for steps processing with \n names are chosen from the following list:
+
 {}
+{}
+{}
+{}
+{}
+
 In order to use either --start or --dostep, it is necessary that a
 previous run was done using one of the steps options to process at least
 through the step immediately preceding the starting step of the current run.
-""".format("\n".join(STEP_LIST))
+""".format(STEP_LIST[0], STEP_LIST[1], STEP_LIST[2], STEP_LIST[3], STEP_LIST[4])
 
 ##########################################################################
 EXAMPLE = """example:
@@ -94,15 +76,13 @@ EXAMPLE = """example:
 
   # Run with --start/stop/dostep options
   FLOMPYapp.py LPS2022.cfg --dostep Download_Precipitation_data  #run at step 'Download_Precipitation_data' only
-  FLOMPYapp.py LPS2022.cfg --end Extracted_damaged_crop_fields    #end after step 'Extracted_damaged_crop_fields'
+  FLOMPYapp.py LPS2022.cfg --end download_S2_data    #end after step 'download_S2_data'
 """
 ##########################################################################
 REFERENCE = """reference:
      Karamvasis K, Karathanassi V. FLOMPY: An Open-Source Toolbox for 
      Floodwater Mapping Using Sentinel-1 Intensity Time Series. 
      Water. 2021; 13(21):2943. https://doi.org/10.3390/w13212943 
-     
-     TODO: Poster reference
 """
 
 def create_parser():
@@ -232,7 +212,6 @@ class FloodwaterEstimation:
         self.LONMIN         = float(self.template_dict['LONMIN'])
         self.LATMAX         = float(self.template_dict['LATMAX'])
         self.LONMAX         = float(self.template_dict['LONMAX'])
-        self.corine_vectorfile = self.template_dict['Corine_vector_file']
         
         
         
@@ -257,21 +236,15 @@ class FloodwaterEstimation:
 
 
         #--- Creating directory structure
-        if not os.path.exists(self.snap_dir): os.makedirs(self.snap_dir)
         if not os.path.exists(self.projectfolder): os.mkdir(self.projectfolder)
-        self.graph_dir = os.path.join(self.scriptsfolder,'Preprocessing_S1_data/Graphs')
+        self.graph_dir = os.path.join(self.scriptsfolder,'C_Preprocessing/Graphs')
         assert os.path.exists(self.graph_dir)
         assert os.path.exists(self.gptcommand)
         
         self.S1_GRD_dir = os.path.join(self.projectfolder,'Sentinel_1_GRD_imagery')
-        self.S2_dir = os.path.join(self.projectfolder,'Sentinel_2_L2A')
         self.ERA5_dir = os.path.join(self.projectfolder,'ERA5')
         self.Preprocessing_dir = os.path.join(self.projectfolder, 'Preprocessed')
         self.Results_dir = os.path.join(self.projectfolder, 'Results')
-        self.Results_crop_delineation = os.path.join(self.projectfolder, 'Crop_delineation_results')
-        if not os.path.exists(self.Results_crop_delineation): os.mkdir(self.Results_crop_delineation)
-        self.Results_crop_delineation_unet = os.path.join(self.projectfolder, 'Crop_delineation_unet')
-        if not os.path.exists(self.Results_crop_delineation_unet): os.mkdir(self.Results_crop_delineation_unet)
         self.temp_export_dir = os.path.join(self.S1_GRD_dir,"S1_orbits")
         
         self.directories = [self.projectfolder,
@@ -315,23 +288,7 @@ class FloodwaterEstimation:
         print("Sentinel-1 data and orbit information have been successfully downloaded")
         
         return 0
-
-    def run_download_S2_data(self, step_name):
-        
-        Download_S2_data(user = self.credentials.keys()[0],
-                         passwd = self.credentials.values()[0],
-                         tiles = self.S2tileid,
-                         Start_time = self.Start_time,
-                         End_time = self.End_time,
-                         write_dir = self.S2_dir,
-                         product = 'S2MSI2A',
-                         download = True,
-                         cloudcoverage = 100)
-
-        print("Sentinel-2 data have been successfully downloaded")
-        
-        return 0
-      
+    
     def run_preprocessing_S1_data(self, step_name):
         
         Get_images_for_baseline_stack(ERA5_dir = self.ERA5_dir,
@@ -353,6 +310,7 @@ class FloodwaterEstimation:
         
         return 0 
 
+    
     def run_multitemporal_statistics(self, step_name):
         
         get_S1_aux (self.Preprocessing_dir)
@@ -374,81 +332,6 @@ class FloodwaterEstimation:
                       minimum_mapping_unit_area_m2=self.min_map_area)
         return 0
     
-    def run_crop_delineation(self, step_name):
-        
-        '''
-        #TODO: Use a functionallity to find zip and unzipped data
-        # ToDo: remove orbits if pixels with nan values are above a certain 
-        threshold
-
-        Args:
-            step_name (TYPE): DESCRIPTION.
-
-        Returns:
-            int: DESCRIPTION.
-        '''
-        
-        # Get data
-        eodata = sentimeseries("S2-timeseries")
-        
-        #eodata.find_zip(datapath)
-        eodata.find(self.S2_dir)
-        eodata.sort_images(date=True)
-        
-        # Get VIs
-        eodata.getVI("NDVI")
-        eodata.getVI("NDMI")
-        
-        # Clip data
-        eodata.clipbyMask(self.geojson_S1, resize = True, new ="masked")
-        eodata.clipbyMask(self.geojson_S1, band = "NDMI", resize = True, new ="masked")
-        eodata.clipbyMask(self.geojson_S1, band = "NDVI", new ="masked")
-        
-        
-        # Show
-        #eodata.show_metadata()
-        
-        self.S2timeseries = eodata
-        # create obj
-        parcels = CropDelineation(eodata = self.S2timeseries,
-                                  dst_path = self.Results_crop_delineation,
-                                  corine_path = self.corine_vectorfile)
-        # corine and scl masks
-        parcels.town_mask(write=False)
-        parcels.cloud_mask(write=False)
-        
-        # edge intensity (0-100) map
-        parcels.edge_probab_map(write=True)
-        
-        # create ndvi series and apply any created mask (clouds, towns)
-        parcels.create_series(write=False)
-
-        # fill values removed by cloud mask
-        parcels.crop_probab_map(
-            cube = parcels.ndviseries,
-            cbmeta = parcels.ndviseries_meta,
-            write=True,
-            )
-
-        # edges, active and inactive fields Map
-        parcels.active_fields()
-
-        # Pretrained 
-        Crop_delinieation_Unet(model_name = 'UNet3',
-                               model_dir = self.scriptsfolder,
-                               BASE_DIR = self.S2_dir,
-                               results_pretrained = self.Results_crop_delineation_unet,
-                               force_cpu = True )
-
-        # Delineate fields: Combine EPM and UNet
-        parcels.delineation(self.geojson_S1, os.path.join(self.Results_crop_delineation_unet,
-        'UNet3_crop_delineation.tif'))
-
-        # Characterize Cultivated and Not-Cultivated fields
-        parcels.flooded_fields(os.path.join(self.Results_dir,'Flood_map_{}.tif'.format(self.projectname)))
-
-        return 0 
-      
     def plot_results(self, print_aux, plot):
         pass
 
@@ -471,12 +354,6 @@ class FloodwaterEstimation:
 
             elif sname == 'Floodwater_classification':
                 self.run_get_flood_map(sname)
-                
-            elif sname == 'Download_S2_data':
-                self.run_download_S2_data(sname)
-                
-            elif sname == 'Crop_delineation':
-                self.run_crop_delineation(sname)
 
         # plot result (show aux visualization message more multiple steps processing)
         print_aux = len(steps) > 1
@@ -512,3 +389,4 @@ def main(iargs=None):
 ###########################################################################################
 if __name__ == '__main__':
     main()
+    
