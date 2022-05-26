@@ -323,6 +323,8 @@ class CropDelineation():
         active_fields[self.epm == self.epm_meta['nodata']] = 0
         active_fields[self.cpm == self.cpm_meta['nodata']] = 0
 
+        self.active_fields = active_fields
+
         self.active_fields_fpath=os.path.join(self.dst_path,
             f"active_fields__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
 
@@ -371,6 +373,13 @@ class CropDelineation():
         # Morphological Opening
         opening = binary_opening(self.combined_edges, structure=np.ones((1,2,2))).astype(np.int16)
 
+        opening[self.active_fields == 0] = 0
+
+        opening_fpath=os.path.join(self.dst_path,
+            f"opening__{self.tmp_rng[0]}_{self.tmp_rng[1]}.tif")
+        with rio.open(opening_fpath, 'w', **self.epm_meta) as dst:
+            dst.write(opening)
+
         # Vectorize fields
         vfields = ({'properties': {}, 'geometry': s} for i, (s, v) in enumerate(
                 features.shapes(opening, connectivity=8, transform=self.epm_meta['transform'])) if v != 0)
@@ -399,18 +408,33 @@ class CropDelineation():
         flood_id, flooded_field_ids = vfields.sindex.query_bulk(flood.geometry, predicate='intersects')
         flooded_fields = vfields.loc[flooded_field_ids]
 
+        def selected_most_flooded(x:gpd.GeoDataFrame, flood:gpd.GeoDataFrame):
+            inter_area = flood.intersection(x['geometry']).area
+            ratio = inter_area / x['geometry'].area
+            ratio = ratio[0]
+            if ratio > 0.1:
+                return True
+            else:
+                return False
+
+
+        # Select fields flooded over 10%
+        flooded_fields['flooded'] = flooded_fields.apply(lambda x: selected_most_flooded(x, flood), axis=1)
+        flooded_fields = flooded_fields.loc[flooded_fields['flooded']==True]
+
         # Major voting to determine cultivated/not_cultivated flooded fields
-        flooded_fields['maj_vote'] = gpd.GeoDataFrame(
-            zonal_stats(vectors=flooded_fields['geometry'], 
-                        raster=self.active_fields_fpath, 
-                        stats='majority'))['majority']
+        flooded_fields = gpd.GeoDataFrame.from_features(
+            zonal_stats(vectors=flooded_fields, 
+                        raster=self.active_fields_fpath,
+                        stats='majority',
+                        geojson_out=True))
 
         def actInact(x):
-            if x['maj_vote'] == 2:
+            if x['majority'] == 2:
                 return 'cultivated'
-            elif x['maj_vote'] == 3:
+            elif x['majority'] == 3:
                 return 'not_cultivated'
-            elif x['maj_vote'] == 1:
+            elif x['majority'] == 1:
                 return 'edge'
             else:
                 return 'unknown_state'
