@@ -1,6 +1,0 @@
-sentinelsat
-rasterio
-shapely
-numpy
-pandas
-geopandas
